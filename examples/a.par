@@ -1,0 +1,3 @@
+print s = s
+sub asd = asd
+main = print $ (asd $ "asd")

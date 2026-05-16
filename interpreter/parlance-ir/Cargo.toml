@@ -1,0 +1,8 @@
+[package]
+name = "parlance-ir"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+parlance-ast = { path = "../parlance-ast" }
+parlance-diagnostics = { path = "../parlance-diagnostics" }

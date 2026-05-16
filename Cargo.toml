@@ -1,0 +1,18 @@
+[package]
+name = "parlance"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+members = [
+    "interpreter/parlance-ast",
+    "interpreter/parlance-diagnostics",
+    "interpreter/parlance-ir",
+    "interpreter/parlance-runtime",
+]
+
+[dependencies]
+parlance-ast = { path = "interpreter/parlance-ast" }
+parlance-diagnostics = { path = "interpreter/parlance-diagnostics" }
+parlance-ir = { path = "interpreter/parlance-ir" }
+parlance-runtime = { path = "interpreter/parlance-runtime" }
