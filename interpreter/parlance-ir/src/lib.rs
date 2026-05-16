@@ -10,10 +10,10 @@ pub enum Value<'a> {
         body: Box<Value<'a>>,
     },
     String(&'a str),
-    Group(Box<Value<'a>>),
+    Group(Rc<Value<'a>>),
     Call {
         callee: Rc<Value<'a>>,
-        arg: Box<Value<'a>>,
+        arg: Rc<Value<'a>>,
     },
 }
 
@@ -21,11 +21,11 @@ impl<'a> From<Expression<'a>> for Value<'a> {
     fn from(expr: Expression<'a>) -> Self {
         match expr {
             Expression::Variable(name) => Value::Variable(name),
-            Expression::Function { params: args, body } => {
+            Expression::Function { params, body } => {
                 let mut body_value = Value::from(*body);
-                for arg in args.into_iter().rev() {
+                for param in params.into_iter().rev() {
                     body_value = Value::Function {
-                        param: arg,
+                        param,
                         body: Box::new(body_value),
                     }
                 }
@@ -35,13 +35,12 @@ impl<'a> From<Expression<'a>> for Value<'a> {
             Expression::Group(inner) => Value::from(*inner),
             Expression::Call { callee, arg } => Value::Call {
                 callee: Rc::new(Value::from(*callee)),
-                arg: Box::new(Value::from(*arg)),
+                arg: Rc::new(Value::from(*arg)),
             },
         }
     }
 }
 
-#[derive(Debug)]
 pub struct Variable<'a> {
     pub name: &'a str,
     pub value: Rc<Value<'a>>,
@@ -69,12 +68,4 @@ impl<'a> From<Statement<'a>> for Variable<'a> {
             },
         }
     }
-}
-
-pub fn from_ast<'a>(stats: Vec<Statement<'a>>) -> Vec<Variable<'a>> {
-    let mut decs = Vec::new();
-    for stat in stats.into_iter() {
-        decs.push(Variable::from(stat))
-    }
-    decs
 }

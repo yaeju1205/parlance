@@ -3,6 +3,8 @@ use std::{collections::HashMap, rc::Rc};
 use parlance_diagnostics::{Diagnostics, Severity, Span};
 use parlance_ir::{Value, Variable};
 
+pub mod stdlib;
+
 pub struct Program<'a> {
     variable_pool_stack: Vec<HashMap<&'a str, Rc<Variable<'a>>>>,
 }
@@ -10,7 +12,10 @@ pub struct Program<'a> {
 impl<'a> Default for Program<'a> {
     fn default() -> Self {
         Self {
-            variable_pool_stack: vec![HashMap::default()],
+            variable_pool_stack: vec![
+                HashMap::default(), // stdlib pool
+                HashMap::default(), // global pool
+            ],
         }
     }
 }
@@ -24,6 +29,12 @@ impl<'a> From<Vec<Variable<'a>>> for Program<'a> {
         program
     }
 }
+
+// impl<'a> Program<'a> {
+//     pub fn with_stdlib(&mut self) {
+//         let stdlib_pool = &self.variable_pool_stack[0];
+//     }
+// }
 
 impl<'a> Program<'a> {
     pub fn declaration_variable(&mut self, var: Variable<'a>) {
@@ -62,11 +73,6 @@ impl<'a> Program<'a> {
             }
             Value::Call { callee, arg } => match self.execute_value(&callee)? {
                 Value::Function { param, body } => {
-                    if matches!(callee.as_ref().clone(), Value::Variable("print")) {
-                        println!("{:?}", arg);
-                        return Ok(Value::String("use print"));
-                    }
-
                     let mut func_pool = HashMap::new();
                     func_pool.insert(
                         param,
@@ -88,7 +94,7 @@ impl<'a> Program<'a> {
                     message: format!("can not call value: {:?}", callee),
                 }),
             },
-            Value::Group(inner) => Ok(*inner.clone()),
+            Value::Group(inner) => Ok(inner.as_ref().clone()),
             _ => Ok(value.clone()),
         }
     }

@@ -1,7 +1,6 @@
-use std::{env, fs, process::exit, rc::Rc};
+use std::{env, fs, process::exit};
 
 use parlance::load_source;
-use parlance_ir::Variable;
 
 fn main() {
     let file_path = env::args().nth(1).unwrap_or_else(|| {
