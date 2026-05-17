@@ -3,10 +3,15 @@ use std::{collections::HashMap, rc::Rc};
 use parlance_diagnostics::{Diagnostics, Severity, Span};
 use parlance_ir::{Value, Variable};
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum BindingValue<'a> {
     NativeFunction(
-        fn(&mut Program<'a>, Rc<BindingValue<'a>>) -> Result<Rc<BindingValue<'a>>, Diagnostics>,
+        Rc<
+            dyn Fn(
+                &mut Program<'a>,
+                Rc<BindingValue<'a>>,
+            ) -> Result<Rc<BindingValue<'a>>, Diagnostics>,
+        >,
     ),
     Value(Rc<Value<'a>>),
 }
@@ -112,7 +117,9 @@ impl<'a> Program<'a> {
                 }
                 _ => Ok(Rc::new(BindingValue::Value(value.clone()))),
             },
-            BindingValue::NativeFunction(nf) => Ok(Rc::new(BindingValue::NativeFunction(*nf))),
+            BindingValue::NativeFunction(nf) => {
+                Ok(Rc::new(BindingValue::NativeFunction(nf.clone())))
+            }
         }
     }
 

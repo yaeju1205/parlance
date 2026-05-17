@@ -9,7 +9,7 @@ pub enum Value<'a> {
         param: &'a str,
         body: Rc<Value<'a>>,
     },
-    String(&'a str),
+    String(String),
     Group(Rc<Value<'a>>),
     Call {
         callee: Rc<Value<'a>>,
@@ -31,7 +31,7 @@ impl<'a> From<Expression<'a>> for Value<'a> {
                 }
                 body_value
             }
-            Expression::String(str) => Value::String(str),
+            Expression::String(str) => Value::String(str.to_string()),
             Expression::Group(inner) => Value::from(*inner),
             Expression::Call { callee, arg } => Value::Call {
                 callee: Rc::new(Value::from(*callee)),

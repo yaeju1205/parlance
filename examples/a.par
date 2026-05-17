@@ -1,3 +1,2 @@
-message = "Hello, World"
-print = std::io::print
-main = print $ message
+message = "Hello, World!"
+main = std::io::print $ (std::string::concat $ message $ "nyang!")

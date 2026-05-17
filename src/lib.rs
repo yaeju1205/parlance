@@ -12,7 +12,16 @@ pub fn load_source<'a>(source: &'a str) -> Result<Program<'a>, Diagnostics> {
 
     program.binding(Binding {
         name: "std::io::print",
-        value: Rc::new(BindingValue::NativeFunction(parlance_stdlib::io::print)),
+        value: Rc::new(BindingValue::NativeFunction(Rc::new(|program, args| {
+            parlance_stdlib::io::print(program, args)
+        }))),
+    });
+
+    program.binding(Binding {
+        name: "std::string::concat",
+        value: Rc::new(BindingValue::NativeFunction(Rc::new(|program, args| {
+            parlance_stdlib::string::concat(program, args)
+        }))),
     });
 
     for stat in stats.into_iter() {

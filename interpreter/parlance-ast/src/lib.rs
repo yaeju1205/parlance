@@ -146,8 +146,8 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_string(&mut self) -> Result<&'a str, Diagnostics> {
-        let start = self.current;
         self.expect('"')?;
+        let start = self.current;
         while let Some(ch) = self.peek() {
             if ch != '"' {
                 self.current += 1;
@@ -156,7 +156,7 @@ impl<'a> Parser<'a> {
             }
         }
         self.expect('"')?;
-        Ok(&self.source[start..self.current])
+        Ok(&self.source[start..self.current - 1])
     }
 
     fn parse_args(&mut self) -> Result<Vec<&'a str>, Diagnostics> {
@@ -188,12 +188,11 @@ impl<'a> Parser<'a> {
         Self { source, current: 0 }
     }
 
-    pub fn parse_expression(&mut self) -> Result<Expression<'a>, Diagnostics> {
+    fn parse_primary_expression(&mut self) -> Result<Expression<'a>, Diagnostics> {
         self.skip_whitespace();
-
         if let Some(first_char) = self.peek() {
             let start = self.current;
-            let mut expression = match first_char {
+            Ok(match first_char {
                 identifier_start!() => Expression::Variable(self.parse_identifier()?),
                 '\\' => {
                     self.fast_advance();
@@ -221,35 +220,7 @@ impl<'a> Parser<'a> {
                     },
                     message: format!("expect expression, got {}", first_char),
                 })?,
-            };
-
-            self.skip_whitespace();
-            loop {
-                self.skip_whitespace();
-                if let Some(second_char) = self.peek() {
-                    expression = match second_char {
-                        '(' => {
-                            self.advance(); // '('
-                            let arg = Box::new(self.parse_expression()?);
-                            self.expect(')')?;
-                            Expression::Call {
-                                callee: Box::new(expression),
-                                arg,
-                            }
-                        }
-                        '$' => {
-                            self.advance(); // '$'
-                            Expression::Call {
-                                callee: Box::new(expression),
-                                arg: Box::new(self.parse_expression()?),
-                            }
-                        }
-                        _ => break Ok(expression),
-                    };
-                } else {
-                    break Ok(expression);
-                }
-            }
+            })
         } else {
             Err(Diagnostics {
                 severity: Severity::Error,
@@ -259,6 +230,22 @@ impl<'a> Parser<'a> {
                 },
                 message: "expect expression, got EOF".to_string(),
             })
+        }
+    }
+
+    pub fn parse_expression(&mut self) -> Result<Expression<'a>, Diagnostics> {
+        let mut expression = self.parse_primary_expression()?;
+        loop {
+            self.skip_whitespace();
+            if let Some('$') = self.peek() {
+                self.fast_advance();
+                expression = Expression::Call {
+                    callee: Box::new(expression),
+                    arg: Box::new(self.parse_primary_expression()?),
+                };
+            } else {
+                break Ok(expression);
+            }
         }
     }
 
