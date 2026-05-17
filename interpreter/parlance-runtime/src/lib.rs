@@ -104,6 +104,7 @@ impl<'a> Program<'a> {
                                 ))?;
                                 match inner_result.as_ref() {
                                     BindingValue::Value(value) => match value.as_ref() {
+                                        Value::Function { .. } => {}
                                         _ => {
                                             self.bind_pool_stack.pop();
                                         }

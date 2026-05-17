@@ -1,5 +1,7 @@
-concat = std::string::concat
 
 asd a b = concat $ a $ b
+    where {
+        concat = std::string::concat
+    }
 
 main = std::io::print $ (asd $ "asd" $ "fgh")

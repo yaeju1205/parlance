@@ -21,6 +21,7 @@ pub enum Statement<'a> {
         name: &'a str,
         args: Vec<&'a str>,
         body: Expression<'a>,
+        where_clause: Vec<Statement<'a>>,
     },
     Variable {
         name: &'a str,
@@ -182,6 +183,32 @@ impl<'a> Parser<'a> {
             }
         }
     }
+
+    fn parse_bracket_block(&mut self) -> Result<Vec<Statement<'a>>, Diagnostics> {
+        let start = self.current;
+        self.expect('{')?;
+        let mut block = Vec::new();
+        loop {
+            self.skip_whitespace();
+            if let Some(ch) = self.peek() {
+                if ch == '}' {
+                    self.fast_advance();
+                    break Ok(block);
+                } else {
+                    block.push(self.parse_statement()?);
+                }
+            } else {
+                break Err(Diagnostics {
+                    severity: Severity::Error,
+                    span: Span {
+                        start,
+                        end: self.current,
+                    },
+                    message: "expect '}', got EOF".to_string(),
+                });
+            }
+        }
+    }
 }
 
 impl<'a> Parser<'a> {
@@ -219,7 +246,7 @@ impl<'a> Parser<'a> {
                         start,
                         end: self.current,
                     },
-                    message: format!("expect expression, got {}", first_char),
+                    message: format!("expect expression, got '{}'", first_char),
                 })?,
             })
         } else {
@@ -258,18 +285,44 @@ impl<'a> Parser<'a> {
             match first_char {
                 identifier_start!() => {
                     let name = self.parse_identifier()?;
-
                     self.skip_whitespace();
                     if let Some(second_char) = self.peek() {
                         match second_char {
                             identifier_start!() => {
                                 let args = self.parse_args()?;
                                 self.expect('=')?;
-                                Ok(Statement::Function {
-                                    name,
-                                    args,
-                                    body: self.parse_expression()?,
-                                })
+                                let body = self.parse_expression()?;
+                                self.skip_whitespace();
+
+                                if let Some('w') = self.peek()
+                                    && self.source.len() - self.current > 4
+                                {
+                                    if self.source.get(self.current..self.current + 5)
+                                        == Some("where")
+                                    {
+                                        self.current += 5;
+                                        Ok(Statement::Function {
+                                            name,
+                                            args,
+                                            body,
+                                            where_clause: self.parse_bracket_block()?,
+                                        })
+                                    } else {
+                                        Ok(Statement::Function {
+                                            name,
+                                            args,
+                                            body,
+                                            where_clause: Vec::new(),
+                                        })
+                                    }
+                                } else {
+                                    Ok(Statement::Function {
+                                        name,
+                                        args,
+                                        body,
+                                        where_clause: Vec::new(),
+                                    })
+                                }
                             }
                             '=' => {
                                 self.fast_advance();

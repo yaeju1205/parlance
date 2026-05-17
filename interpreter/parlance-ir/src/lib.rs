@@ -50,8 +50,23 @@ pub struct Variable<'a> {
 impl<'a> From<Statement<'a>> for Variable<'a> {
     fn from(stat: Statement<'a>) -> Self {
         match stat {
-            Statement::Function { name, args, body } => {
+            Statement::Function {
+                name,
+                args,
+                body,
+                where_clause,
+            } => {
                 let mut body = Value::from(body);
+                for where_stat in where_clause.into_iter().rev() {
+                    let where_var = Variable::from(where_stat);
+                    body = Value::Call {
+                        callee: Rc::new(Value::Function {
+                            param: where_var.name,
+                            body: Rc::new(body),
+                        }),
+                        arg: where_var.value,
+                    };
+                }
                 for arg in args.into_iter().rev() {
                     body = Value::Function {
                         param: arg,
