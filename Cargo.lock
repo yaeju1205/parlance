@@ -10,6 +10,7 @@ dependencies = [
  "parlance-diagnostics",
  "parlance-ir",
  "parlance-runtime",
+ "parlance-stdlib",
 ]
 
 [[package]]
@@ -37,4 +38,13 @@ version = "0.1.0"
 dependencies = [
  "parlance-diagnostics",
  "parlance-ir",
+]
+
+[[package]]
+name = "parlance-stdlib"
+version = "0.1.0"
+dependencies = [
+ "parlance-diagnostics",
+ "parlance-ir",
+ "parlance-runtime",
 ]

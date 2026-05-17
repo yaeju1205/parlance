@@ -7,7 +7,7 @@ pub enum Value<'a> {
     Variable(&'a str),
     Function {
         param: &'a str,
-        body: Box<Value<'a>>,
+        body: Rc<Value<'a>>,
     },
     String(&'a str),
     Group(Rc<Value<'a>>),
@@ -26,7 +26,7 @@ impl<'a> From<Expression<'a>> for Value<'a> {
                 for param in params.into_iter().rev() {
                     body_value = Value::Function {
                         param,
-                        body: Box::new(body_value),
+                        body: Rc::new(body_value),
                     }
                 }
                 body_value
@@ -54,7 +54,7 @@ impl<'a> From<Statement<'a>> for Variable<'a> {
                 for arg in args.into_iter().rev() {
                     body = Value::Function {
                         param: arg,
-                        body: Box::new(body),
+                        body: Rc::new(body),
                     };
                 }
                 Variable {

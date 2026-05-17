@@ -1,0 +1,9 @@
+[package]
+name = "parlance-stdlib"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+parlance-diagnostics = { path = "../parlance-diagnostics" }
+parlance-ir = { path = "../parlance-ir" }
+parlance-runtime = { path = "../parlance-runtime" }

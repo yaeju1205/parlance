@@ -20,8 +20,8 @@ fn main() {
         exit(1);
     });
 
-    if let Some(var) = program.get_variable(&run_var) {
-        program.execute_variable(var).unwrap_or_else(|err| {
+    if let Some(var) = program.get_bind(&run_var) {
+        program.execute_bind(var).unwrap_or_else(|err| {
             eprintln!("{}", err.to_string());
             exit(1);
         });

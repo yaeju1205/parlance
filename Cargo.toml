@@ -9,6 +9,7 @@ members = [
     "interpreter/parlance-diagnostics",
     "interpreter/parlance-ir",
     "interpreter/parlance-runtime",
+    "interpreter/parlance-stdlib"
 ]
 
 [dependencies]
@@ -16,3 +17,4 @@ parlance-ast = { path = "interpreter/parlance-ast" }
 parlance-diagnostics = { path = "interpreter/parlance-diagnostics" }
 parlance-ir = { path = "interpreter/parlance-ir" }
 parlance-runtime = { path = "interpreter/parlance-runtime" }
+parlance-stdlib = { path = "interpreter/parlance-stdlib" }
