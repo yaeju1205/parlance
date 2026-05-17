@@ -26,6 +26,7 @@ pub enum Statement<'a> {
     Variable {
         name: &'a str,
         value: Expression<'a>,
+        where_clause: Vec<Statement<'a>>,
     },
 }
 
@@ -293,7 +294,6 @@ impl<'a> Parser<'a> {
                                 self.expect('=')?;
                                 let body = self.parse_expression()?;
                                 self.skip_whitespace();
-
                                 if let Some('w') = self.peek()
                                     && self.source.len() - self.current > 4
                                 {
@@ -326,10 +326,34 @@ impl<'a> Parser<'a> {
                             }
                             '=' => {
                                 self.fast_advance();
-                                Ok(Statement::Variable {
-                                    name,
-                                    value: self.parse_expression()?,
-                                })
+                                let value = self.parse_expression()?;
+                                self.skip_whitespace();
+                                if let Some('w') = self.peek()
+                                    && self.source.len() - self.current > 4
+                                {
+                                    if self.source.get(self.current..self.current + 5)
+                                        == Some("where")
+                                    {
+                                        self.current += 5;
+                                        Ok(Statement::Variable {
+                                            name,
+                                            value,
+                                            where_clause: self.parse_bracket_block()?,
+                                        })
+                                    } else {
+                                        Ok(Statement::Variable {
+                                            name,
+                                            value,
+                                            where_clause: Vec::new(),
+                                        })
+                                    }
+                                } else {
+                                    Ok(Statement::Variable {
+                                        name,
+                                        value,
+                                        where_clause: Vec::new(),
+                                    })
+                                }
                             }
                             _ => Err(Diagnostics {
                                 severity: Severity::Error,
@@ -376,6 +400,7 @@ impl<'a> Parser<'a> {
         let mut stats = Vec::new();
         while !self.is_at_end() {
             stats.push(self.parse_statement()?);
+            self.skip_whitespace();
         }
         Ok(stats)
     }

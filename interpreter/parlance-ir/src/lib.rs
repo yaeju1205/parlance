@@ -56,32 +56,51 @@ impl<'a> From<Statement<'a>> for Variable<'a> {
                 body,
                 where_clause,
             } => {
-                let mut body = Value::from(body);
+                let mut value = Value::from(body);
                 for where_stat in where_clause.into_iter().rev() {
                     let where_var = Variable::from(where_stat);
-                    body = Value::Call {
+                    value = Value::Call {
                         callee: Rc::new(Value::Function {
                             param: where_var.name,
-                            body: Rc::new(body),
+                            body: Rc::new(value),
                         }),
                         arg: where_var.value,
                     };
                 }
                 for arg in args.into_iter().rev() {
-                    body = Value::Function {
+                    value = Value::Function {
                         param: arg,
-                        body: Rc::new(body),
+                        body: Rc::new(value),
                     };
                 }
                 Variable {
                     name,
-                    value: Rc::new(body),
+                    value: Rc::new(value),
                 }
             }
-            Statement::Variable { name, value } => Variable {
+            Statement::Variable {
                 name,
-                value: Rc::new(Value::from(value)),
-            },
+                value,
+                where_clause,
+            } => {
+                let mut value = Value::from(value);
+
+                for where_stat in where_clause.into_iter().rev() {
+                    let where_var = Variable::from(where_stat);
+                    value = Value::Call {
+                        callee: Rc::new(Value::Function {
+                            param: where_var.name,
+                            body: Rc::new(value),
+                        }),
+                        arg: where_var.value,
+                    };
+                }
+
+                Variable {
+                    name,
+                    value: Rc::new(value),
+                }
+            }
         }
     }
 }
