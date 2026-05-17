@@ -1,2 +1,5 @@
-message = "Hello, World!"
-main = std::io::print $ (std::string::concat $ message $ "nyang!")
+concat = std::string::concat
+
+asd a b = concat $ a $ b
+
+main = std::io::print $ (asd $ "asd" $ "fgh")

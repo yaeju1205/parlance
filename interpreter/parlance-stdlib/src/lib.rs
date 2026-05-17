@@ -10,11 +10,14 @@ pub mod io {
         arg: Rc<BindingValue<'a>>,
     ) -> Result<Rc<BindingValue<'a>>, Diagnostics> {
         match arg.as_ref() {
-            BindingValue::Value(value) => println!("{:?}", value),
+            BindingValue::Value(value) => match value.as_ref() {
+                Value::String(str) => println!("{str}"),
+                _ => println!("{:?}", value),
+            },
             BindingValue::NativeFunction(_) => println!("<native function>"),
         }
         Ok(Rc::new(BindingValue::Value(Rc::new(Value::String(
-            "std::io::print".to_string(),
+            String::from("std::io::print"),
         )))))
     }
 }
@@ -49,7 +52,7 @@ pub mod string {
                             _ => Err(Diagnostics {
                                 severity: Severity::Error,
                                 span: Span::default(),
-                                message: "expect string, got native function".to_string(),
+                                message: String::from("expect string, got native function"),
                             }),
                         },
                     ))))
@@ -63,7 +66,7 @@ pub mod string {
             _ => Err(Diagnostics {
                 severity: Severity::Error,
                 span: Span::default(),
-                message: "expect string, got native function".to_string(),
+                message: String::from("expect string, got native function"),
             }),
         }
     }

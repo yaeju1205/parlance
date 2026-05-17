@@ -8,7 +8,7 @@ fn main() {
         exit(1);
     });
 
-    let run_var = env::args().nth(2).unwrap_or("main".to_string());
+    let run_var = env::args().nth(2).unwrap_or(String::from("main"));
 
     let source = fs::read_to_string(&file_path).unwrap_or_else(|err| {
         eprintln!("{file_path}: {err}");

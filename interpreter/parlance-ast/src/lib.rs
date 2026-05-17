@@ -140,7 +140,7 @@ impl<'a> Parser<'a> {
                     start,
                     end: self.current,
                 },
-                message: "expect identifier, got EOR".to_string(),
+                message: String::from("expect identifier, got EOR"),
             })
         }
     }
@@ -162,9 +162,10 @@ impl<'a> Parser<'a> {
     fn parse_args(&mut self) -> Result<Vec<&'a str>, Diagnostics> {
         let start = self.current;
         let mut args: Vec<&'a str> = Vec::new();
+        self.skip_whitespace();
         loop {
-            self.skip_whitespace();
             args.push(self.parse_identifier()?);
+            self.skip_whitespace();
             if let Some(ch) = self.peek() {
                 if !matches!(ch, identifier_continue!()) {
                     break Ok(args);
@@ -176,7 +177,7 @@ impl<'a> Parser<'a> {
                         start,
                         end: self.current,
                     },
-                    message: "expect args, got EOF".to_string(),
+                    message: String::from("expect args, got EOF"),
                 })?
             }
         }
@@ -228,7 +229,7 @@ impl<'a> Parser<'a> {
                     start: self.current,
                     end: self.current,
                 },
-                message: "expect expression, got EOF".to_string(),
+                message: String::from("expect expression, got EOF"),
             })
         }
     }
@@ -293,7 +294,7 @@ impl<'a> Parser<'a> {
                                 start,
                                 end: self.current,
                             },
-                            message: "expect '=', got EOF".to_string(),
+                            message: String::from("expect '=', got EOF"),
                         })
                     }
                 }
@@ -313,7 +314,7 @@ impl<'a> Parser<'a> {
                     start: self.current,
                     end: self.current,
                 },
-                message: "expect statement, got EOF".to_string(),
+                message: String::from("expect statement, got EOF"),
             })
         }
     }

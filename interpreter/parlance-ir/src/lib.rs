@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use parlance_ast::{Expression, Statement};
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum Value<'a> {
     Variable(&'a str),
     Function {
@@ -41,6 +41,7 @@ impl<'a> From<Expression<'a>> for Value<'a> {
     }
 }
 
+#[derive(Debug)]
 pub struct Variable<'a> {
     pub name: &'a str,
     pub value: Rc<Value<'a>>,

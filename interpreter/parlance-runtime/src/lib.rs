@@ -89,8 +89,8 @@ impl<'a> Program<'a> {
                         BindingValue::Value(callee) => match callee.as_ref() {
                             Value::Function { param, body } => {
                                 let param = *param;
-                                let mut func_pool = HashMap::new();
-                                func_pool.insert(
+                                let mut bind_pool = HashMap::new();
+                                bind_pool.insert(
                                     param,
                                     Rc::new(Binding {
                                         name: param,
@@ -98,11 +98,18 @@ impl<'a> Program<'a> {
                                     }),
                                 );
 
-                                self.bind_pool_stack.push(func_pool);
+                                self.bind_pool_stack.push(bind_pool);
                                 let inner_result = self.execute_bind_value(Rc::new(
                                     BindingValue::Value(body.clone()),
                                 ))?;
-                                self.bind_pool_stack.pop();
+                                match inner_result.as_ref() {
+                                    BindingValue::Value(value) => match value.as_ref() {
+                                        _ => {
+                                            self.bind_pool_stack.pop();
+                                        }
+                                    },
+                                    _ => {}
+                                };
 
                                 Ok(inner_result)
                             }
