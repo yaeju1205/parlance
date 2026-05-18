@@ -2,17 +2,28 @@ use parlance_diagnostics::{Diagnostics, Severity, Span};
 
 #[derive(Debug)]
 pub enum Expression<'a> {
-    Variable(&'a str),
+    Variable {
+        name: &'a str,
+    },
     Function {
         params: Vec<&'a str>,
-        body: Box<Expression<'a>>,
+        body: Box<ExpressionNode<'a>>,
     },
+    Group {
+        inner: Box<ExpressionNode<'a>>,
+    },
+    Integer(i16),
     String(&'a str),
-    Group(Box<Expression<'a>>),
     Call {
-        callee: Box<Expression<'a>>,
-        arg: Box<Expression<'a>>,
+        callee: Box<ExpressionNode<'a>>,
+        arg: Box<ExpressionNode<'a>>,
     },
+}
+
+#[derive(Debug)]
+pub struct ExpressionNode<'a> {
+    pub kind: Expression<'a>,
+    pub span: Span,
 }
 
 #[derive(Debug)]
@@ -20,14 +31,20 @@ pub enum Statement<'a> {
     Function {
         name: &'a str,
         args: Vec<&'a str>,
-        body: Expression<'a>,
-        where_clause: Vec<Statement<'a>>,
+        body: ExpressionNode<'a>,
+        where_clause: Vec<StatementNode<'a>>,
     },
     Variable {
         name: &'a str,
-        value: Expression<'a>,
-        where_clause: Vec<Statement<'a>>,
+        value: ExpressionNode<'a>,
+        where_clause: Vec<StatementNode<'a>>,
     },
+}
+
+#[derive(Debug)]
+pub struct StatementNode<'a> {
+    pub kind: Statement<'a>,
+    pub span: Span,
 }
 
 pub struct Parser<'a> {
@@ -99,7 +116,7 @@ impl<'a> Parser<'a> {
     }
 }
 
-macro_rules! identifier_start{
+macro_rules! identifier_start {
     () => {
         'a'..='z' | 'A'..='Z' | '_'
     };
@@ -108,6 +125,12 @@ macro_rules! identifier_start{
 macro_rules! identifier_continue {
     () => {
         'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | ':'
+    };
+}
+
+macro_rules! integer_start {
+    () => {
+        '0'..='9'
     };
 }
 
@@ -152,13 +175,59 @@ impl<'a> Parser<'a> {
         let start = self.current;
         while let Some(ch) = self.peek() {
             if ch != '"' {
-                self.current += 1;
+                self.fast_advance();
             } else {
                 break;
             }
         }
         self.expect('"')?;
         Ok(&self.source[start..self.current - 1])
+    }
+
+    fn parse_integer(&mut self) -> Result<i16, Diagnostics> {
+        let start = self.current;
+        self.skip_whitespace();
+
+        while let Some(int_ch) = self.peek() {
+            if matches!(int_ch, integer_start!()) {
+                self.fast_advance();
+            } else if matches!(int_ch, identifier_start!()) {
+                return Err(Diagnostics {
+                    severity: Severity::Error,
+                    span: Span {
+                        start,
+                        end: self.current + 1,
+                    },
+                    message: format!("expect 0~9, got {int_ch}"),
+                });
+            } else {
+                break;
+            }
+        }
+
+        if self.current == start {
+            return Err(Diagnostics {
+                severity: Severity::Error,
+                span: Span {
+                    start,
+                    end: self.current + 1,
+                },
+                message: format!("expect 0~9, got EOF"),
+            });
+        }
+
+        let num_str = &self.source[start..self.current];
+        match num_str.parse::<i16>() {
+            Ok(num) => Ok(num),
+            Err(_) => Err(Diagnostics {
+                severity: Severity::Error,
+                span: Span {
+                    start,
+                    end: self.current,
+                },
+                message: format!("Overflow integer: {num_str}"),
+            }),
+        }
     }
 
     fn parse_args(&mut self) -> Result<Vec<&'a str>, Diagnostics> {
@@ -185,7 +254,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_bracket_block(&mut self) -> Result<Vec<Statement<'a>>, Diagnostics> {
+    fn parse_bracket_block(&mut self) -> Result<Vec<StatementNode<'a>>, Diagnostics> {
         let start = self.current;
         self.expect('{')?;
         let mut block = Vec::new();
@@ -217,12 +286,14 @@ impl<'a> Parser<'a> {
         Self { source, current: 0 }
     }
 
-    fn parse_primary_expression(&mut self) -> Result<Expression<'a>, Diagnostics> {
+    fn parse_primary_expression(&mut self) -> Result<ExpressionNode<'a>, Diagnostics> {
         self.skip_whitespace();
         if let Some(first_char) = self.peek() {
             let start = self.current;
-            Ok(match first_char {
-                identifier_start!() => Expression::Variable(self.parse_identifier()?),
+            let expr = match first_char {
+                identifier_start!() => Expression::Variable {
+                    name: self.parse_identifier()?,
+                },
                 '\\' => {
                     self.fast_advance();
                     let args = self.parse_args()?;
@@ -234,13 +305,14 @@ impl<'a> Parser<'a> {
                         body: Box::new(self.parse_expression()?),
                     }
                 }
-                '"' => Expression::String(self.parse_string()?),
                 '(' => {
                     self.fast_advance();
                     let inner = Box::new(self.parse_expression()?);
                     self.expect(')')?;
-                    Expression::Group(inner)
+                    Expression::Group { inner }
                 }
+                '"' => Expression::String(self.parse_string()?),
+                integer_start!() => Expression::Integer(self.parse_integer()?),
                 _ => Err(Diagnostics {
                     severity: Severity::Error,
                     span: Span {
@@ -249,6 +321,14 @@ impl<'a> Parser<'a> {
                     },
                     message: format!("expect expression, got '{}'", first_char),
                 })?,
+            };
+
+            Ok(ExpressionNode {
+                kind: expr,
+                span: Span {
+                    start,
+                    end: self.current,
+                },
             })
         } else {
             Err(Diagnostics {
@@ -262,15 +342,22 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse_expression(&mut self) -> Result<Expression<'a>, Diagnostics> {
+    pub fn parse_expression(&mut self) -> Result<ExpressionNode<'a>, Diagnostics> {
+        let start = self.current;
         let mut expression = self.parse_primary_expression()?;
         loop {
             self.skip_whitespace();
             if let Some('$') = self.peek() {
                 self.fast_advance();
-                expression = Expression::Call {
-                    callee: Box::new(expression),
-                    arg: Box::new(self.parse_primary_expression()?),
+                expression = ExpressionNode {
+                    kind: Expression::Call {
+                        callee: Box::new(expression),
+                        arg: Box::new(self.parse_primary_expression()?),
+                    },
+                    span: Span {
+                        start,
+                        end: self.current,
+                    },
                 };
             } else {
                 break Ok(expression);
@@ -278,12 +365,11 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse_statement(&mut self) -> Result<Statement<'a>, Diagnostics> {
+    pub fn parse_statement(&mut self) -> Result<StatementNode<'a>, Diagnostics> {
         self.skip_whitespace();
-
         if let Some(first_char) = self.peek() {
             let start = self.current;
-            match first_char {
+            let stat = match first_char {
                 identifier_start!() => {
                     let name = self.parse_identifier()?;
                     self.skip_whitespace();
@@ -301,27 +387,27 @@ impl<'a> Parser<'a> {
                                         == Some("where")
                                     {
                                         self.current += 5;
-                                        Ok(Statement::Function {
+                                        Statement::Function {
                                             name,
                                             args,
                                             body,
                                             where_clause: self.parse_bracket_block()?,
-                                        })
+                                        }
                                     } else {
-                                        Ok(Statement::Function {
+                                        Statement::Function {
                                             name,
                                             args,
                                             body,
                                             where_clause: Vec::new(),
-                                        })
+                                        }
                                     }
                                 } else {
-                                    Ok(Statement::Function {
+                                    Statement::Function {
                                         name,
                                         args,
                                         body,
                                         where_clause: Vec::new(),
-                                    })
+                                    }
                                 }
                             }
                             '=' => {
@@ -335,24 +421,24 @@ impl<'a> Parser<'a> {
                                         == Some("where")
                                     {
                                         self.current += 5;
-                                        Ok(Statement::Variable {
+                                        Statement::Variable {
                                             name,
                                             value,
                                             where_clause: self.parse_bracket_block()?,
-                                        })
+                                        }
                                     } else {
-                                        Ok(Statement::Variable {
+                                        Statement::Variable {
                                             name,
                                             value,
                                             where_clause: Vec::new(),
-                                        })
+                                        }
                                     }
                                 } else {
-                                    Ok(Statement::Variable {
+                                    Statement::Variable {
                                         name,
                                         value,
                                         where_clause: Vec::new(),
-                                    })
+                                    }
                                 }
                             }
                             _ => Err(Diagnostics {
@@ -362,7 +448,7 @@ impl<'a> Parser<'a> {
                                     end: self.current,
                                 },
                                 message: format!("expect '=', got '{}'", second_char),
-                            }),
+                            })?,
                         }
                     } else {
                         Err(Diagnostics {
@@ -372,7 +458,7 @@ impl<'a> Parser<'a> {
                                 end: self.current,
                             },
                             message: String::from("expect '=', got EOF"),
-                        })
+                        })?
                     }
                 }
                 _ => Err(Diagnostics {
@@ -382,8 +468,16 @@ impl<'a> Parser<'a> {
                         end: self.current,
                     },
                     message: format!("expect statement, got '{}'", first_char),
-                }),
-            }
+                })?,
+            };
+
+            Ok(StatementNode {
+                kind: stat,
+                span: Span {
+                    start,
+                    end: self.current,
+                },
+            })
         } else {
             Err(Diagnostics {
                 severity: Severity::Error,
@@ -396,7 +490,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse(&mut self) -> Result<Vec<Statement<'a>>, Diagnostics> {
+    pub fn parse(&mut self) -> Result<Vec<StatementNode<'a>>, Diagnostics> {
         let mut stats = Vec::new();
         while !self.is_at_end() {
             stats.push(self.parse_statement()?);

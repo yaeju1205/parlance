@@ -1,4 +1,4 @@
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Span {
     pub start: usize,
     pub end: usize,

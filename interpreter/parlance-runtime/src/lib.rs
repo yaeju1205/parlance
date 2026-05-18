@@ -70,7 +70,7 @@ impl<'a> Program<'a> {
     ) -> Result<Rc<BindingValue<'a>>, Diagnostics> {
         match bind_value.as_ref() {
             BindingValue::Value(value) => match value.as_ref() {
-                Value::Variable(name) => {
+                Value::Variable { name } => {
                     if let Some(inner) = self.get_bind(name) {
                         Ok(self.execute_bind(inner)?)
                     } else {

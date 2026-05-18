@@ -24,8 +24,16 @@ pub fn load_source<'a>(source: &'a str) -> Result<Program<'a>, Diagnostics> {
         }))),
     });
 
+    program.binding(Binding {
+        name: "std::int::add",
+        value: Rc::new(BindingValue::NativeFunction(Rc::new(|program, args| {
+            parlance_stdlib::int::add(program, args)
+        }))),
+    });
+
     for stat in stats.into_iter() {
-        program.binding(Binding::from(Variable::from(stat)));
+        program.binding(Binding::from(Variable::from(stat.kind)));
     }
+
     Ok(program)
 }

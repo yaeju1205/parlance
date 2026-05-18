@@ -1,9 +1,1 @@
-asd a b = concat $ a $ b
-    where {
-        concat = std::string::concat
-    }
-
-main = std::io::print $ (main_concat $ (asd $ "asd" $ "fgh") $ "qwd")
-    where {
-        main_concat = std::string::concat
-    }
+main = std::io::print $ (std::int::add $ 1 $ 1)
