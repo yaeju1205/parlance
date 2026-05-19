@@ -53,27 +53,19 @@ pub struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    fn is_at_end(&self) -> bool {
-        self.current >= self.source.len()
-    }
-
     fn peek(&self) -> Option<char> {
-        self.source.chars().nth(self.current)
+        self.source[self.current..].chars().next()
     }
 
     fn advance(&mut self) -> Option<char> {
-        if self.is_at_end() {
-            None
-        } else {
-            let ch = self.peek();
-            self.current += 1;
-            ch
-        }
+        let ch = self.peek()?;
+        self.current += ch.len_utf8();
+        Some(ch)
     }
 
     fn fast_advance(&mut self) {
-        if !self.is_at_end() {
-            self.current += 1;
+        if let Some(ch) = self.peek() {
+            self.current += ch.len_utf8();
         }
     }
 
@@ -492,7 +484,7 @@ impl<'a> Parser<'a> {
 
     pub fn parse(&mut self) -> Result<Vec<StatementNode<'a>>, Diagnostics> {
         let mut stats = Vec::new();
-        while !self.is_at_end() {
+        while self.current < self.source.len() {
             stats.push(self.parse_statement()?);
             self.skip_whitespace();
         }

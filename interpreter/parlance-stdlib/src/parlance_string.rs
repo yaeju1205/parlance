@@ -4,7 +4,7 @@ use parlance_diagnostics::{Diagnostics, Severity, Span};
 use parlance_ir::Value;
 use parlance_runtime::{BindingValue, Program};
 
-pub fn concat<'a>(
+pub fn parlance_string_concat<'a>(
     _: &mut Program<'a>,
     lhs: Rc<BindingValue<'a>>,
 ) -> Result<Rc<BindingValue<'a>>, Diagnostics> {

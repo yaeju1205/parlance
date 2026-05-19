@@ -24,7 +24,7 @@ pub struct Diagnostics {
 impl ToString for Diagnostics {
     fn to_string(&self) -> String {
         format!(
-            "{:?}: {} ({})",
+            "Parlance::{:?}\n> {} ({})",
             self.severity,
             self.message,
             self.span.to_string()

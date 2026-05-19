@@ -16,6 +16,7 @@ pub enum Value<'a> {
     },
     String(String),
     Integer(i16),
+    Bool(bool),
     Call {
         callee: Rc<Value<'a>>,
         arg: Rc<Value<'a>>,

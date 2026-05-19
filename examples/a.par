@@ -1,1 +1,1 @@
-main = std::io::print $ (std::int::add $ 1 $ 1)
+main = std::io::print $ "빠나나"
