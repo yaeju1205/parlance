@@ -1,1 +1,3 @@
-main = std::io::print $ "빠나나"
+print = std::io::print
+
+main = std::control::if $ false $ (print $ "It's true!")

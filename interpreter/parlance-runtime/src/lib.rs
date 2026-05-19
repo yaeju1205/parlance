@@ -16,6 +16,12 @@ pub enum BindingValue<'a> {
     Value(Rc<Value<'a>>),
 }
 
+impl<'a> From<String> for BindingValue<'a> {
+    fn from(value: String) -> Self {
+        Self::Value(Rc::new(Value::String(value)))
+    }
+}
+
 pub struct Binding<'a> {
     pub name: &'a str,
     pub value: Rc<BindingValue<'a>>,
@@ -84,7 +90,6 @@ impl<'a> Program<'a> {
                 Value::Call { callee, arg } => {
                     let callee =
                         self.execute_bind_value(Rc::new(BindingValue::Value(callee.clone())))?;
-                    let arg = self.execute_bind_value(Rc::new(BindingValue::Value(arg.clone())))?;
                     match callee.as_ref() {
                         BindingValue::Value(callee) => match callee.as_ref() {
                             Value::Function { param, body } => {
@@ -94,7 +99,9 @@ impl<'a> Program<'a> {
                                     param,
                                     Rc::new(Binding {
                                         name: param,
-                                        value: arg,
+                                        value: self.execute_bind_value(Rc::new(
+                                            BindingValue::Value(arg.clone()),
+                                        ))?,
                                     }),
                                 );
 
@@ -120,7 +127,11 @@ impl<'a> Program<'a> {
                                 message: format!("can not call value: {:?}", callee),
                             }),
                         },
-                        BindingValue::NativeFunction(nf) => nf(self, arg),
+                        BindingValue::NativeFunction(nf) => {
+                            let arg =
+                                self.execute_bind_value(Rc::new(BindingValue::Value(arg.clone())))?;
+                            nf(self, arg)
+                        }
                     }
                 }
                 _ => Ok(Rc::new(BindingValue::Value(value.clone()))),

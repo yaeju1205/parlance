@@ -41,6 +41,13 @@ pub fn load_source<'a>(source: &'a str) -> Result<Program<'a>, Diagnostics> {
         }))),
     });
 
+    program.binding(Binding {
+        name: "std::control::if",
+        value: Rc::new(BindingValue::NativeFunction(Rc::new(|program, args| {
+            parlance_stdlib::parlance_control::parlance_control_if(program, args)
+        }))),
+    });
+
     for stat in stats.into_iter() {
         program.binding(Binding::from(Variable::from(stat.kind)));
     }
