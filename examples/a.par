@@ -1,3 +1,7 @@
 print = std::io::print
+if = std::control::if
 
-main = std::control::if $ false $ (print $ "It's true!")
+main = 
+    if $ false
+        $ (print $ "It's true!")
+        $ (print $ "It's false")

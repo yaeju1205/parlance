@@ -5,14 +5,15 @@ use parlance_ir::{Value, Variable};
 
 #[derive(Clone)]
 pub enum BindingValue<'a> {
-    NativeFunction(
-        Rc<
+    NativeFunction {
+        execute_arg: bool,
+        callee: Rc<
             dyn Fn(
                 &mut Program<'a>,
                 Rc<BindingValue<'a>>,
             ) -> Result<Rc<BindingValue<'a>>, Diagnostics>,
         >,
-    ),
+    },
     Value(Rc<Value<'a>>),
 }
 
@@ -127,18 +128,29 @@ impl<'a> Program<'a> {
                                 message: format!("can not call value: {:?}", callee),
                             }),
                         },
-                        BindingValue::NativeFunction(nf) => {
-                            let arg =
-                                self.execute_bind_value(Rc::new(BindingValue::Value(arg.clone())))?;
-                            nf(self, arg)
+                        BindingValue::NativeFunction {
+                            callee,
+                            execute_arg,
+                        } => {
+                            let arg = Rc::new(BindingValue::Value(arg.clone()));
+                            if *execute_arg {
+                                let arg = self.execute_bind_value(arg)?;
+                                callee(self, arg)
+                            } else {
+                                callee(self, arg)
+                            }
                         }
                     }
                 }
                 _ => Ok(Rc::new(BindingValue::Value(value.clone()))),
             },
-            BindingValue::NativeFunction(nf) => {
-                Ok(Rc::new(BindingValue::NativeFunction(nf.clone())))
-            }
+            BindingValue::NativeFunction {
+                callee,
+                execute_arg,
+            } => Ok(Rc::new(BindingValue::NativeFunction {
+                execute_arg: *execute_arg,
+                callee: callee.clone(),
+            })),
         }
     }
 
@@ -150,9 +162,13 @@ impl<'a> Program<'a> {
             BindingValue::Value(value) => {
                 self.execute_bind_value(Rc::new(BindingValue::Value(value.clone())))
             }
-            BindingValue::NativeFunction(nf) => {
-                self.execute_bind_value(Rc::new(BindingValue::NativeFunction(nf.clone())))
-            }
+            BindingValue::NativeFunction {
+                callee,
+                execute_arg,
+            } => Ok(Rc::new(BindingValue::NativeFunction {
+                execute_arg: *execute_arg,
+                callee: callee.clone(),
+            })),
         }
     }
 }

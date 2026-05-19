@@ -225,12 +225,12 @@ impl<'a> Parser<'a> {
     fn parse_args(&mut self) -> Result<Vec<&'a str>, Diagnostics> {
         let start = self.current;
         let mut args: Vec<&'a str> = Vec::new();
-        self.skip_whitespace();
         loop {
-            args.push(self.parse_identifier()?);
             self.skip_whitespace();
             if let Some(ch) = self.peek() {
-                if !matches!(ch, identifier_continue!()) {
+                if matches!(ch, identifier_continue!()) {
+                    args.push(self.parse_identifier()?);
+                } else {
                     break Ok(args);
                 }
             } else {

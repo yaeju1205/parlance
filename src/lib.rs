@@ -22,30 +22,17 @@ pub fn load_source<'a>(source: &'a str) -> Result<Program<'a>, Diagnostics> {
 
     program.binding(Binding {
         name: "std::io::print",
-        value: Rc::new(BindingValue::NativeFunction(Rc::new(|program, args| {
-            parlance_stdlib::parlance_io::parlance_io_print(program, args)
-        }))),
+        value: Rc::new(parlance_stdlib::parlance_io::parlance_io_print()),
     });
 
     program.binding(Binding {
         name: "std::string::concat",
-        value: Rc::new(BindingValue::NativeFunction(Rc::new(|program, args| {
-            parlance_stdlib::parlance_string::parlance_string_concat(program, args)
-        }))),
-    });
-
-    program.binding(Binding {
-        name: "std::int::add",
-        value: Rc::new(BindingValue::NativeFunction(Rc::new(|program, args| {
-            parlance_stdlib::parlance_int::parlance_int_add(program, args)
-        }))),
+        value: Rc::new(parlance_stdlib::parlance_string::parlance_string_concat()),
     });
 
     program.binding(Binding {
         name: "std::control::if",
-        value: Rc::new(BindingValue::NativeFunction(Rc::new(|program, args| {
-            parlance_stdlib::parlance_control::parlance_control_if(program, args)
-        }))),
+        value: Rc::new(parlance_stdlib::parlance_control::parlance_control_if()),
     });
 
     for stat in stats.into_iter() {
