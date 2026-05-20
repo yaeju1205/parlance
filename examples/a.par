@@ -1,7 +1,5 @@
+concat = std::string::concat
 print = std::io::print
-if = std::control::if
 
-main = 
-    if $ false
-        $ (print $ "It's true!")
-        $ (print $ "It's false")
+`.` a b = concat $ a $ b
+main = print $ (`.` $ "Hello, " $ "World!")

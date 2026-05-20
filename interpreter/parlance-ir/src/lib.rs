@@ -59,7 +59,7 @@ impl<'a> From<Statement<'a>> for Variable<'a> {
         match stat {
             Statement::Function {
                 name,
-                args,
+                params,
                 body,
                 where_clause,
             } => {
@@ -74,7 +74,7 @@ impl<'a> From<Statement<'a>> for Variable<'a> {
                         arg: where_var.value,
                     };
                 }
-                for arg in args.into_iter().rev() {
+                for arg in params.into_iter().rev() {
                     value = Value::Function {
                         param: arg,
                         body: Rc::new(value),

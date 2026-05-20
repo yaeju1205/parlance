@@ -6,12 +6,14 @@ use parlance_ir::{Value, Variable};
 #[derive(Clone)]
 pub enum BindingValue<'a> {
     NativeFunction {
+        name: &'a str,
         execute_arg: bool,
         callee: Rc<
             dyn Fn(
-                &mut Program<'a>,
-                Rc<BindingValue<'a>>,
-            ) -> Result<Rc<BindingValue<'a>>, Diagnostics>,
+                    &mut Program<'a>,
+                    Rc<BindingValue<'a>>,
+                ) -> Result<Rc<BindingValue<'a>>, Diagnostics>
+                + 'a,
         >,
     },
     Value(Rc<Value<'a>>),
@@ -129,8 +131,9 @@ impl<'a> Program<'a> {
                             }),
                         },
                         BindingValue::NativeFunction {
-                            callee,
                             execute_arg,
+                            callee,
+                            ..
                         } => {
                             let arg = Rc::new(BindingValue::Value(arg.clone()));
                             if *execute_arg {
@@ -145,11 +148,13 @@ impl<'a> Program<'a> {
                 _ => Ok(Rc::new(BindingValue::Value(value.clone()))),
             },
             BindingValue::NativeFunction {
+                name,
                 callee,
                 execute_arg,
             } => Ok(Rc::new(BindingValue::NativeFunction {
-                execute_arg: *execute_arg,
+                name,
                 callee: callee.clone(),
+                execute_arg: *execute_arg,
             })),
         }
     }
@@ -163,11 +168,13 @@ impl<'a> Program<'a> {
                 self.execute_bind_value(Rc::new(BindingValue::Value(value.clone())))
             }
             BindingValue::NativeFunction {
+                name,
                 callee,
                 execute_arg,
             } => Ok(Rc::new(BindingValue::NativeFunction {
-                execute_arg: *execute_arg,
+                name,
                 callee: callee.clone(),
+                execute_arg: *execute_arg,
             })),
         }
     }

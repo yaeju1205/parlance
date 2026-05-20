@@ -30,7 +30,7 @@ pub struct ExpressionNode<'a> {
 pub enum Statement<'a> {
     Function {
         name: &'a str,
-        args: Vec<&'a str>,
+        params: Vec<&'a str>,
         body: ExpressionNode<'a>,
         where_clause: Vec<StatementNode<'a>>,
     },
@@ -222,16 +222,16 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_args(&mut self) -> Result<Vec<&'a str>, Diagnostics> {
+    fn parse_params(&mut self) -> Result<Vec<&'a str>, Diagnostics> {
         let start = self.current;
-        let mut args: Vec<&'a str> = Vec::new();
+        let mut params: Vec<&'a str> = Vec::new();
         loop {
             self.skip_whitespace();
             if let Some(ch) = self.peek() {
                 if matches!(ch, identifier_continue!()) {
-                    args.push(self.parse_identifier()?);
+                    params.push(self.parse_identifier()?);
                 } else {
-                    break Ok(args);
+                    break Ok(params);
                 }
             } else {
                 Err(Diagnostics {
@@ -240,7 +240,7 @@ impl<'a> Parser<'a> {
                         start,
                         end: self.current,
                     },
-                    message: String::from("expect args, got EOF"),
+                    message: String::from("expect params, got EOF"),
                 })?
             }
         }
@@ -266,7 +266,7 @@ impl<'a> Parser<'a> {
                         start,
                         end: self.current,
                     },
-                    message: "expect '}', got EOF".to_string(),
+                    message: String::from("expect '}', got EOF"),
                 });
             }
         }
@@ -288,12 +288,12 @@ impl<'a> Parser<'a> {
                 },
                 '\\' => {
                     self.fast_advance();
-                    let args = self.parse_args()?;
+                    let params = self.parse_params()?;
                     self.skip_whitespace();
                     self.expect('-')?;
                     self.expect('>')?;
                     Expression::Function {
-                        params: args,
+                        params: params,
                         body: Box::new(self.parse_expression()?),
                     }
                 }
@@ -302,6 +302,29 @@ impl<'a> Parser<'a> {
                     let inner = Box::new(self.parse_expression()?);
                     self.expect(')')?;
                     Expression::Group { inner }
+                }
+                '`' => {
+                    self.fast_advance();
+                    while let Some(ch) = self.peek() {
+                        if ch != '`' {
+                            self.fast_advance();
+                        } else if ch.is_whitespace() {
+                            return Err(Diagnostics {
+                                severity: Severity::Error,
+                                span: Span {
+                                    start,
+                                    end: self.current,
+                                },
+                                message: String::from("unexpect whitespace"),
+                            });
+                        } else {
+                            break;
+                        }
+                    }
+                    self.expect('`')?;
+                    Expression::Variable {
+                        name: &self.source[start + 1..self.current - 1],
+                    }
                 }
                 '"' => Expression::String(self.parse_string()?),
                 integer_start!() => Expression::Integer(self.parse_integer()?),
@@ -368,7 +391,7 @@ impl<'a> Parser<'a> {
                     if let Some(second_char) = self.peek() {
                         match second_char {
                             identifier_start!() => {
-                                let args = self.parse_args()?;
+                                let params = self.parse_params()?;
                                 self.expect('=')?;
                                 let body = self.parse_expression()?;
                                 self.skip_whitespace();
@@ -381,14 +404,14 @@ impl<'a> Parser<'a> {
                                         self.current += 5;
                                         Statement::Function {
                                             name,
-                                            args,
+                                            params,
                                             body,
                                             where_clause: self.parse_bracket_block()?,
                                         }
                                     } else {
                                         Statement::Function {
                                             name,
-                                            args,
+                                            params,
                                             body,
                                             where_clause: Vec::new(),
                                         }
@@ -396,7 +419,7 @@ impl<'a> Parser<'a> {
                                 } else {
                                     Statement::Function {
                                         name,
-                                        args,
+                                        params,
                                         body,
                                         where_clause: Vec::new(),
                                     }
@@ -451,6 +474,71 @@ impl<'a> Parser<'a> {
                             },
                             message: String::from("expect '=', got EOF"),
                         })?
+                    }
+                }
+                '`' => {
+                    let start = self.current;
+                    self.fast_advance();
+                    while let Some(ch) = self.peek() {
+                        if ch != '`' {
+                            self.fast_advance();
+                        } else if ch.is_whitespace() {
+                            return Err(Diagnostics {
+                                severity: Severity::Error,
+                                span: Span {
+                                    start,
+                                    end: self.current,
+                                },
+                                message: String::from("unexpect whitespace"),
+                            });
+                        } else {
+                            break;
+                        }
+                    }
+                    let name = &self.source[start + 1..self.current];
+                    self.expect('`')?;
+                    self.skip_whitespace();
+                    let params = self.parse_params()?;
+                    if params.len() != 2 {
+                        return Err(Diagnostics {
+                            severity: Severity::Error,
+                            span: Span {
+                                start,
+                                end: self.current,
+                            },
+                            message: String::from("infix can has only 2 params"),
+                        });
+                    }
+                    self.skip_whitespace();
+                    self.expect('=')?;
+                    let body = self.parse_expression()?;
+                    self.skip_whitespace();
+                    if let Some('w') = self.peek()
+                        && self.source.len() - self.current > 4
+                    {
+                        if self.source.get(self.current..self.current + 5) == Some("where") {
+                            self.current += 5;
+                            Statement::Function {
+                                name,
+                                params,
+                                body,
+                                where_clause: self.parse_bracket_block()?,
+                            }
+                        } else {
+                            Statement::Function {
+                                name,
+                                params,
+                                body,
+                                where_clause: Vec::new(),
+                            }
+                        }
+                    } else {
+                        Statement::Function {
+                            name,
+                            params,
+                            body,
+                            where_clause: Vec::new(),
+                        }
                     }
                 }
                 _ => Err(Diagnostics {
