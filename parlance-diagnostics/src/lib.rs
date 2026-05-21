@@ -4,6 +4,16 @@ pub struct Span {
     pub end: usize,
 }
 
+impl Span {
+    pub fn error(self, message: impl Into<String>) -> Diagnostics {
+        Diagnostics {
+            severity: Severity::Error,
+            span: self,
+            message: message.into(),
+        }
+    }
+}
+
 impl ToString for Span {
     fn to_string(&self) -> String {
         format!("{}:{}", self.start, self.end)
@@ -15,6 +25,7 @@ pub enum Severity {
     Error,
 }
 
+#[derive(Debug)]
 pub struct Diagnostics {
     pub severity: Severity,
     pub span: Span,

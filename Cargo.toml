@@ -5,16 +5,16 @@ edition = "2024"
 
 [workspace]
 members = [
-    "interpreter/parlance-ast",
-    "interpreter/parlance-diagnostics",
-    "interpreter/parlance-ir",
-    "interpreter/parlance-runtime",
-    "interpreter/parlance-stdlib"
+    "parlance-ast",
+    "parlance-diagnostics",
+    "parlance-ir",
+    "parlance-runtime",
+    "parlance-stdlib"
 ]
 
 [dependencies]
-parlance-ast = { path = "interpreter/parlance-ast" }
-parlance-diagnostics = { path = "interpreter/parlance-diagnostics" }
-parlance-ir = { path = "interpreter/parlance-ir" }
-parlance-runtime = { path = "interpreter/parlance-runtime" }
-parlance-stdlib = { path = "interpreter/parlance-stdlib" }
+parlance-ast = { path = "parlance-ast" }
+parlance-diagnostics = { path = "parlance-diagnostics" }
+parlance-ir = { path = "parlance-ir" }
+parlance-runtime = { path = "parlance-runtime" }
+parlance-stdlib = { path = "parlance-stdlib" }
