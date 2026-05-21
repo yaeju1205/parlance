@@ -306,19 +306,29 @@ impl<'a> Parser<'a> {
                 '`' => {
                     self.fast_advance();
                     while let Some(ch) = self.peek() {
-                        if ch != '`' {
-                            self.fast_advance();
-                        } else if ch.is_whitespace() {
-                            return Err(Diagnostics {
-                                severity: Severity::Error,
-                                span: Span {
-                                    start,
-                                    end: self.current,
-                                },
-                                message: String::from("unexpect whitespace"),
-                            });
-                        } else {
-                            break;
+                        match ch {
+                            '`' => break,
+                            ')' | identifier_start!() => {
+                                return Err(Diagnostics {
+                                    severity: Severity::Error,
+                                    span: Span {
+                                        start,
+                                        end: self.current,
+                                    },
+                                    message: format!("unexpect character '{ch}'"),
+                                });
+                            }
+                            ch if ch.is_whitespace() => {
+                                return Err(Diagnostics {
+                                    severity: Severity::Error,
+                                    span: Span {
+                                        start,
+                                        end: self.current,
+                                    },
+                                    message: String::from("unexpect whitespace"),
+                                });
+                            }
+                            _ => self.fast_advance(),
                         }
                     }
                     self.expect('`')?;
@@ -362,18 +372,74 @@ impl<'a> Parser<'a> {
         let mut expression = self.parse_primary_expression()?;
         loop {
             self.skip_whitespace();
-            if let Some('$') = self.peek() {
-                self.fast_advance();
-                expression = ExpressionNode {
-                    kind: Expression::Call {
-                        callee: Box::new(expression),
-                        arg: Box::new(self.parse_primary_expression()?),
-                    },
-                    span: Span {
-                        start,
-                        end: self.current,
-                    },
-                };
+            if let Some(ch) = self.peek() {
+                match ch {
+                    '$' => {
+                        self.fast_advance();
+                        expression = ExpressionNode {
+                            kind: Expression::Call {
+                                callee: Box::new(expression),
+                                arg: Box::new(self.parse_primary_expression()?),
+                            },
+                            span: Span {
+                                start,
+                                end: self.current,
+                            },
+                        };
+                    }
+                    identifier_start!() | '`' | ')' => break Ok(expression),
+                    _ => {
+                        let infix_start = self.current;
+                        self.fast_advance();
+                        while let Some(ch) = self.peek() {
+                            match ch {
+                                '`' => {
+                                    return Err(Diagnostics {
+                                        severity: Severity::Error,
+                                        span: Span {
+                                            start: infix_start,
+                                            end: self.current,
+                                        },
+                                        message: format!("unexpect '{ch}'"),
+                                    });
+                                }
+                                ch if ch.is_whitespace() || matches!(ch, identifier_start!()) => {
+                                    expression = ExpressionNode {
+                                        kind: Expression::Call {
+                                            callee: Box::new(ExpressionNode {
+                                                kind: Expression::Variable {
+                                                    name: &self.source[infix_start..self.current],
+                                                },
+                                                span: Span {
+                                                    start: infix_start,
+                                                    end: self.current,
+                                                },
+                                            }),
+                                            arg: Box::new(expression),
+                                        },
+                                        span: Span {
+                                            start,
+                                            end: self.current,
+                                        },
+                                    };
+                                    let rhs = self.parse_primary_expression()?;
+                                    expression = ExpressionNode {
+                                        kind: Expression::Call {
+                                            callee: Box::new(expression),
+                                            arg: Box::new(rhs),
+                                        },
+                                        span: Span {
+                                            start,
+                                            end: self.current,
+                                        },
+                                    };
+                                    break;
+                                }
+                                _ => self.fast_advance(),
+                            }
+                        }
+                    }
+                }
             } else {
                 break Ok(expression);
             }
@@ -480,19 +546,29 @@ impl<'a> Parser<'a> {
                     let start = self.current;
                     self.fast_advance();
                     while let Some(ch) = self.peek() {
-                        if ch != '`' {
-                            self.fast_advance();
-                        } else if ch.is_whitespace() {
-                            return Err(Diagnostics {
-                                severity: Severity::Error,
-                                span: Span {
-                                    start,
-                                    end: self.current,
-                                },
-                                message: String::from("unexpect whitespace"),
-                            });
-                        } else {
-                            break;
+                        match ch {
+                            '`' => break,
+                            ')' | identifier_start!() => {
+                                return Err(Diagnostics {
+                                    severity: Severity::Error,
+                                    span: Span {
+                                        start,
+                                        end: self.current,
+                                    },
+                                    message: format!("unexpect character '{ch}'"),
+                                });
+                            }
+                            ch if ch.is_whitespace() => {
+                                return Err(Diagnostics {
+                                    severity: Severity::Error,
+                                    span: Span {
+                                        start,
+                                        end: self.current,
+                                    },
+                                    message: String::from("unexpect whitespace"),
+                                });
+                            }
+                            _ => self.fast_advance(),
                         }
                     }
                     let name = &self.source[start + 1..self.current];

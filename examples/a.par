@@ -2,4 +2,4 @@ concat = std::string::concat
 print = std::io::print
 
 `.` a b = concat $ a $ b
-main = print $ (`.` $ "Hello, " $ "World!")
+main = print $ ("Hello, " . "World!")
