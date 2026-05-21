@@ -40,10 +40,10 @@ pub fn parlance_string_concat<'a>() -> BindingValue<'a> {
                     message: format!("expect string, got {:?}", lhs_value),
                 }),
             },
-            _ => Err(Diagnostics {
+            BindingValue::NativeFunction { name, .. } => Err(Diagnostics {
                 severity: Severity::Error,
                 span: Span::default(),
-                message: String::from("expect string, got native function"),
+                message: format!("expect string, got {name}"),
             }),
         }),
     }

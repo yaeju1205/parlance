@@ -35,6 +35,16 @@ pub fn load_source<'a>(source: &'a str) -> Result<Program<'a>, Diagnostics> {
         value: Rc::new(parlance_stdlib::parlance_control::parlance_control_if()),
     });
 
+    program.binding(Binding {
+        name: "std::parser::whitespace",
+        value: Rc::new(parlance_stdlib::parlance_parser::parlance_parser_whitespace()),
+    });
+
+    program.binding(Binding {
+        name: "std::parser::text",
+        value: Rc::new(parlance_stdlib::parlance_parser::parlance_parser_text()),
+    });
+
     for stat in stats.into_iter() {
         program.binding(Binding::from(Variable::from(stat.kind)));
     }
