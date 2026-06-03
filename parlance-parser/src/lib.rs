@@ -2,61 +2,74 @@ mod tokenizer;
 
 use std::rc::Rc;
 
-use parlance_diagnostics::{Diagnostics, Severity, Span};
+use parlance_diagnostics::{Diagnostics, Span};
 
 use crate::tokenizer::{Token, TokenKind, tokenize};
 
+#[derive(Debug)]
+pub struct Node<T> {
+    pub span: Span,
+    pub kind: T,
+}
+
+#[derive(Debug)]
 pub enum ExpressionKind {
     Variable {
         name: Rc<str>,
     },
     Function {
-        params: Vec<Rc<str>>,
-        body: Box<Expression>,
+        params: Vec<Node<Rc<str>>>,
+        body: Rc<Expression>,
     },
     Infix {
         operator: Rc<str>,
     },
     FunctionCall {
-        callee: Box<Expression>,
-        arg: Box<Expression>,
+        callee: Rc<Expression>,
+        arg: Rc<Expression>,
     },
     InfixCall {
-        operator: Rc<str>,
-        lhs: Box<Expression>,
-        rhs: Box<Expression>,
+        operator: Node<Rc<str>>,
+        lhs: Rc<Expression>,
+        rhs: Rc<Expression>,
     },
     String(Rc<str>),
+    Int(i32),
+    Group(Rc<Expression>),
 }
 
+#[derive(Debug)]
 pub struct Expression {
     pub span: Span,
     pub kind: ExpressionKind,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum InfinixCombineRule {
     Left,
     Right,
 }
 
+#[derive(Debug)]
 pub enum StatementKind {
     Variable {
         name: Rc<str>,
-        value: Expression,
+        value: Rc<Expression>,
     },
     Function {
         name: Rc<str>,
-        params: Vec<Rc<str>>,
-        body: Expression,
+        params: Vec<Node<Rc<str>>>,
+        body: Rc<Expression>,
     },
     Infix {
         combine_rule: InfinixCombineRule,
-        operator: Rc<str>,
-        params: Vec<Rc<str>>,
-        body: Expression,
+        operator: Node<Rc<str>>,
+        params: Vec<Node<Rc<str>>>,
+        body: Rc<Expression>,
     },
 }
 
+#[derive(Debug)]
 pub struct Statement {
     pub span: Span,
     pub kind: StatementKind,
@@ -80,69 +93,71 @@ impl<'a> Parser<'a> {
         token
     }
 
-    fn expect_token(&mut self, expect_token: TokenKind) -> Result<Rc<Token>, Diagnostics> {
+    fn expect_token(&mut self, answer: TokenKind) -> Result<Rc<Token>, Diagnostics> {
         let Some(guess_token) = self.next_token() else {
-            return Err(Diagnostics {
-                message: format!("expected {:?}, found EOF", expect_token),
-                severity: Severity::Error,
-                span: Span {
+            return Err(Diagnostics::parser_error(
+                format!("expected {:?}, found EOF", answer),
+                Span {
                     start: 0,
                     end: self.source.len(),
                 },
-            });
+            ));
         };
 
-        if expect_token.mem_equal(&guess_token.kind) {
-            Err(Diagnostics {
-                message: format!("expected {:?}, found {:?}", expect_token, guess_token.kind),
-                severity: Severity::Error,
-                span: guess_token.span.clone(),
-            })
-        } else {
+        if answer.mem_equal(&guess_token.kind) {
             Ok(guess_token)
+        } else {
+            Err(Diagnostics::parser_error(
+                format!("expected {:?}, found {:?}", answer, guess_token.kind),
+                guess_token.span.clone(),
+            ))
         }
     }
 
-    fn parse_params(&mut self) -> Result<Vec<Rc<str>>, Diagnostics> {
+    fn parse_params(&mut self) -> Result<Vec<Node<Rc<str>>>, Diagnostics> {
         let mut params = Vec::new();
 
         loop {
-            let Some(param_token) = self.next_token() else {
-                return Err(Diagnostics {
-                    message: "expected '=', found EOF".to_string(),
-                    severity: Severity::Error,
-                    span: Span {
+            let Some(param_token) = self.peek_token() else {
+                return Err(Diagnostics::parser_error(
+                    "expected '=', found EOF".to_string(),
+                    Span {
                         start: 0,
                         end: self.source.len(),
                     },
-                });
+                ));
             };
 
             match &param_token.kind {
-                TokenKind::Identifier(param) => params.push(param.clone()),
+                TokenKind::Identifier(param) => params.push(Node {
+                    kind: param.clone(),
+                    span: param_token.span.clone(),
+                }),
                 _ => break Ok(params),
             }
+
+            self.next_token();
         }
     }
 
     fn parse_scheme(&mut self) -> Result<Vec<Statement>, Diagnostics> {
-        match self.peek_token() {
+        let let_token = match self.peek_token() {
             Some(token) => match &token.kind {
-                TokenKind::Let => {}
+                TokenKind::Let => token,
                 _ => return Ok(Vec::new()),
             },
             None => {
-                return Err(Diagnostics {
-                    message: "expected statement, found EOF".to_string(),
-                    severity: Severity::Error,
-                    span: Span {
+                return Err(Diagnostics::parser_error(
+                    "expected '=', found EOF".to_string(),
+                    Span {
                         start: 0,
                         end: self.source.len(),
                     },
-                });
+                ));
             }
-        }
+        };
 
+        self.next_token();
         let mut scheme = Vec::new();
 
         loop {
@@ -152,17 +167,19 @@ impl<'a> Parser<'a> {
                         self.next_token();
                         break Ok(scheme);
                     }
+                    TokenKind::NewLine => {
+                        self.next_token();
+                    }
                     _ => scheme.push(self.parse_statement()?),
                 },
                 None => {
-                    return Err(Diagnostics {
-                        message: "expected in, found EOF".to_string(),
-                        severity: Severity::Error,
-                        span: Span {
-                            start: 0,
+                    return Err(Diagnostics::parser_error(
+                        "expected in, found EOF".to_string(),
+                        Span {
+                            start: let_token.span.start.clone(),
                             end: self.source.len(),
                         },
-                    });
+                    ));
                 }
             }
         }
@@ -180,14 +197,13 @@ impl<'a> Parser<'a> {
 
     pub fn parse_primary_expression(&mut self) -> Result<Expression, Diagnostics> {
         let Some(token) = self.next_token() else {
-            return Err(Diagnostics {
-                message: "expected primary expression, found EOF".to_string(),
-                severity: Severity::Error,
-                span: Span {
+            return Err(Diagnostics::parser_error(
+                "expected primary expression, found EOF".to_string(),
+                Span {
                     start: 0,
                     end: self.source.len(),
                 },
-            });
+            ));
         };
 
         match &token.kind {
@@ -197,14 +213,13 @@ impl<'a> Parser<'a> {
             }),
             TokenKind::Infix => {
                 let Some(symbol) = self.next_token() else {
-                    return Err(Diagnostics {
-                        message: "expected Symbol, found EOF".to_string(),
-                        severity: Severity::Error,
-                        span: Span {
+                    return Err(Diagnostics::parser_error(
+                        "expected Symbol, found EOF".to_string(),
+                        Span {
                             start: token.span.start.clone(),
                             end: self.source.len(),
                         },
-                    });
+                    ));
                 };
 
                 match &symbol.kind {
@@ -217,11 +232,10 @@ impl<'a> Parser<'a> {
                             operator: operator.clone(),
                         },
                     }),
-                    _ => Err(Diagnostics {
-                        message: format!("expected Symbol, found {:?}", &symbol.kind),
-                        severity: Severity::Error,
-                        span: symbol.span.clone(),
-                    }),
+                    _ => Err(Diagnostics::parser_error(
+                        format!("expected Symbol, found {:?}", &symbol.kind),
+                        symbol.span.clone(),
+                    )),
                 }
             }
             TokenKind::Lambda => {
@@ -235,7 +249,7 @@ impl<'a> Parser<'a> {
                     },
                     kind: ExpressionKind::Function {
                         params,
-                        body: Box::new(body),
+                        body: Rc::new(body),
                     },
                 })
             }
@@ -248,24 +262,25 @@ impl<'a> Parser<'a> {
                 span: token.span.clone(),
                 kind: ExpressionKind::String(value.to_owned()),
             }),
-            TokenKind::NewLine => self.parse_primary_expression(),
-            _ => Err(Diagnostics {
-                message: format!(
-                    "expect primary expression, found {}",
-                    &self.source[token.span.start..token.span.end]
-                ),
-                severity: Severity::Error,
+            TokenKind::Int(value) => Ok(Expression {
                 span: token.span.clone(),
+                kind: ExpressionKind::Int(*value),
             }),
+            TokenKind::NewLine => self.parse_primary_expression(),
+            _ => Err(Diagnostics::parser_error(
+                format!("expect primary expression, found {:?}", &token.kind),
+                token.span.clone(),
+            )),
         }
     }
 
     pub fn parse_expression(&mut self) -> Result<Expression, Diagnostics> {
         let mut expr = self.parse_primary_expression()?;
         loop {
-            let Some(token) = self.next_token() else {
+            let Some(token) = self.peek_token() else {
                 return Ok(expr);
             };
+
             let kind = &token.kind;
 
             if matches!(kind, TokenKind::NewLine) {
@@ -274,6 +289,7 @@ impl<'a> Parser<'a> {
 
             match kind {
                 TokenKind::Symbol(symbol) => {
+                    self.next_token();
                     let rhs = self.parse_primary_expression()?;
                     expr = Expression {
                         span: Span {
@@ -281,13 +297,16 @@ impl<'a> Parser<'a> {
                             end: rhs.span.end,
                         },
                         kind: ExpressionKind::InfixCall {
-                            operator: symbol.clone(),
-                            lhs: Box::new(expr),
-                            rhs: Box::new(rhs),
+                            operator: Node {
+                                kind: symbol.clone(),
+                                span: token.span.clone(),
+                            },
+                            lhs: Rc::new(expr),
+                            rhs: Rc::new(rhs),
                         },
                     };
                 }
-                TokenKind::Identifier(_) | TokenKind::String(_) => {
+                TokenKind::Identifier(_) | TokenKind::String(_) | TokenKind::Int(_) => {
                     let arg = self.parse_expression()?;
                     expr = Expression {
                         span: Span {
@@ -295,32 +314,37 @@ impl<'a> Parser<'a> {
                             end: arg.span.end.clone(),
                         },
                         kind: ExpressionKind::FunctionCall {
-                            callee: Box::new(expr),
-                            arg: Box::new(arg),
+                            callee: Rc::new(expr),
+                            arg: Rc::new(arg),
                         },
                     };
                 }
-                _ => {
-                    return Err(Diagnostics {
-                        message: format!("exepect expression, found {:?}", kind),
-                        severity: Severity::Error,
-                        span: token.span.clone(),
-                    });
+                TokenKind::LeftParen => {
+                    self.next_token();
+                    let inner = self.parse_expression()?;
+                    let right_paren = self.expect_token(TokenKind::RightParen)?;
+                    expr = Expression {
+                        span: Span {
+                            start: expr.span.start.clone(),
+                            end: right_paren.span.end.clone(),
+                        },
+                        kind: ExpressionKind::Group(Rc::new(inner)),
+                    }
                 }
+                _ => break Ok(expr),
             }
         }
     }
 
     pub fn parse_statement(&mut self) -> Result<Statement, Diagnostics> {
         let Some(token) = self.next_token() else {
-            return Err(Diagnostics {
-                message: "expected statement, found EOF".to_string(),
-                severity: Severity::Error,
-                span: Span {
+            return Err(Diagnostics::parser_error(
+                "expected statement, found EOF".to_string(),
+                Span {
                     start: 0,
                     end: self.source.len(),
                 },
-            });
+            ));
         };
 
         match &token.kind {
@@ -337,7 +361,7 @@ impl<'a> Parser<'a> {
                         },
                         kind: StatementKind::Variable {
                             name: name.clone(),
-                            value,
+                            value: Rc::new(value),
                         },
                         scheme,
                     })
@@ -350,7 +374,7 @@ impl<'a> Parser<'a> {
                         kind: StatementKind::Function {
                             name: name.clone(),
                             params,
-                            body: value,
+                            body: Rc::new(value),
                         },
                         scheme,
                     })
@@ -358,60 +382,55 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Infix => {
                 let Some(comb_token) = self.next_token() else {
-                    return Err(Diagnostics {
-                        message: "expected 'left' or 'right', found EOF".to_string(),
-                        severity: Severity::Error,
-                        span: Span {
+                    return Err(Diagnostics::parser_error(
+                        "expected 'left' or 'right', found EOF".to_string(),
+                        Span {
                             start: token.span.start.clone(),
                             end: self.source.len(),
                         },
-                    });
+                    ));
                 };
                 let combine_rule = match &comb_token.kind {
                     TokenKind::Identifier(rule) => match rule.as_ref() {
                         "left" => InfinixCombineRule::Left,
                         "right" => InfinixCombineRule::Right,
                         _ => {
-                            return Err(Diagnostics {
-                                message: format!(
+                            return Err(Diagnostics::parser_error(
+                                format!(
                                     "expected 'left' or 'right', found '{:?}'",
                                     &comb_token.kind
                                 ),
-                                severity: Severity::Error,
-                                span: comb_token.span.clone(),
-                            });
+                                comb_token.span.clone(),
+                            ));
                         }
                     },
                     _ => {
-                        return Err(Diagnostics {
-                            message: format!(
-                                "expected 'left' or 'right', found {:?}",
-                                &comb_token.kind
-                            ),
-                            severity: Severity::Error,
-                            span: comb_token.span.clone(),
-                        });
+                        return Err(Diagnostics::parser_error(
+                            format!("expected 'left' or 'right', found {:?}", &comb_token.kind),
+                            comb_token.span.clone(),
+                        ));
                     }
                 };
 
                 let Some(operator_token) = self.next_token() else {
-                    return Err(Diagnostics {
-                        message: "expected Symbol, found EOF".to_string(),
-                        severity: Severity::Error,
-                        span: Span {
+                    return Err(Diagnostics::parser_error(
+                        "expected Symbol, found EOF".to_string(),
+                        Span {
                             start: token.span.start.clone(),
                             end: self.source.len(),
                         },
-                    });
+                    ));
                 };
                 let operator = match &operator_token.kind {
-                    TokenKind::Symbol(operator) => operator.clone(),
+                    TokenKind::Symbol(operator) => Node {
+                        kind: operator.clone(),
+                        span: operator_token.span.clone(),
+                    },
                     _ => {
-                        return Err(Diagnostics {
-                            message: format!("expected Symbol, found {:?}", &operator_token.kind),
-                            severity: Severity::Error,
-                            span: operator_token.span.clone(),
-                        });
+                        return Err(Diagnostics::parser_error(
+                            format!("expected Symbol, found {:?}", &operator_token.kind),
+                            operator_token.span.clone(),
+                        ));
                     }
                 };
 
@@ -429,27 +448,27 @@ impl<'a> Parser<'a> {
                         combine_rule,
                         operator,
                         params,
-                        body,
+                        body: Rc::new(body),
                     },
                     scheme,
                 })
             }
             TokenKind::NewLine => self.parse_statement(),
-            _ => Err(Diagnostics {
-                message: format!("expected statement, found {:?}", &token.kind),
-                severity: Severity::Error,
-                span: Span {
-                    start: 0,
-                    end: self.source.len(),
-                },
-            }),
+            _ => Err(Diagnostics::parser_error(
+                format!("expected statement, found {:?}", &token.kind),
+                token.span.clone(),
+            )),
         }
     }
 
     pub fn parse(&mut self) -> Result<Vec<Statement>, Diagnostics> {
         let mut stats = Vec::new();
 
-        while let Some(_) = self.peek_token() {
+        while let Some(token) = self.peek_token() {
+            if let TokenKind::NewLine = &token.kind {
+                self.next_token();
+                continue;
+            }
             stats.push(self.parse_statement()?);
         }
 

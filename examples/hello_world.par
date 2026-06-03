@@ -1,0 +1,2 @@
+value v = "Hello"
+main = value 128

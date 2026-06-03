@@ -1,0 +1,18 @@
+[package]
+name = "parlance"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+members = [
+    "parlance-diagnostics",
+    "parlance-parser",
+    "parlance-compiler",
+    "parlance-vm",
+]
+
+[dependencies]
+parlance-diagnostics = { path = "parlance-diagnostics" }
+parlance-parser = { path = "parlance-parser" }
+parlance-compiler = { path = "parlance-compiler" }
+parlance-vm = { path = "parlance-vm" }

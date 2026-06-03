@@ -1,0 +1,6 @@
+infix right $ a b = a b
+
+infix left + a b = let
+    value = std::int::add a b
+in
+    value

@@ -42,10 +42,10 @@ impl Diagnostics {
         }
     }
 
-    pub fn compiler_error(message: String) -> Self {
+    pub fn compiler_error(message: String, span: Span) -> Self {
         Self {
             message,
-            span: Span::default(),
+            span,
             severity: Severity::Error,
             origin: Origin::Compiler,
         }

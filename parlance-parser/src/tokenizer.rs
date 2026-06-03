@@ -1,6 +1,6 @@
 use std::{mem, rc::Rc};
 
-use parlance_diagnostics::{Diagnostics, Severity, Span};
+use parlance_diagnostics::{Diagnostics, Span};
 
 #[derive(Debug, PartialEq)]
 pub enum TokenKind {
@@ -16,6 +16,7 @@ pub enum TokenKind {
     Infix,
     NewLine,
     String(Rc<str>),
+    Int(i32),
 }
 
 impl TokenKind {
@@ -31,15 +32,16 @@ pub struct Token {
 
 pub fn tokenize<'a>(source: &'a str) -> Result<Vec<Token>, Diagnostics> {
     let mut tokens = Vec::new();
-
     let mut current = 0;
-    let mut chars = source.chars();
 
-    while let Some(ch) = chars.next() {
+    let mut chars = source.chars().peekable();
+
+    while let Some(&ch) = chars.peek() {
         let start = current;
-        current += 1;
 
         if ch.is_whitespace() {
+            chars.next();
+            current += ch.len_utf8();
             if ch == '\n' {
                 tokens.push(Token {
                     kind: TokenKind::NewLine,
@@ -52,103 +54,132 @@ pub fn tokenize<'a>(source: &'a str) -> Result<Vec<Token>, Diagnostics> {
             continue;
         }
 
-        match ch {
-            'A'..='Z' | 'a'..='z' | '_' => {
-                loop {
-                    if !matches!(
-                        chars.next(),
-                        Some('A'..='Z' | 'a'..='z' | '_' | ':' | '0'..='9')
-                    ) {
+        if matches!(ch, 'A'..='Z' | 'a'..='z' | '_') {
+            while let Some(&next_ch) = chars.peek() {
+                if matches!(next_ch, 'A'..='Z' | 'a'..='z' | '_' | ':' | '0'..='9') {
+                    chars.next();
+                    current += next_ch.len_utf8();
+                } else {
+                    break;
+                }
+            }
+
+            let literal = &source[start..current];
+            let kind = match literal {
+                "let" => TokenKind::Let,
+                "in" => TokenKind::In,
+                "infix" => TokenKind::Infix,
+                _ => TokenKind::Identifier(Rc::from(literal)),
+            };
+
+            tokens.push(Token {
+                kind,
+                span: Span {
+                    start,
+                    end: current,
+                },
+            });
+            continue;
+        }
+
+        if ch == '"' {
+            chars.next();
+            current += ch.len_utf8();
+
+            loop {
+                match chars.next() {
+                    Some('"') => {
+                        current += '"'.len_utf8();
                         break;
                     }
-                    current += 1;
-                }
-                tokens.push(Token {
-                    kind: match &source[start..current] {
-                        "let" => TokenKind::Let,
-                        "in" => TokenKind::In,
-                        "infix" => TokenKind::Infix,
-                        _ => TokenKind::Identifier(Rc::from(&source[start..current])),
-                    },
-                    span: Span {
-                        start,
-                        end: current,
-                    },
-                });
-            }
-            '"' => {
-                loop {
-                    let Some(ch2) = chars.next() else {
-                        return Err(Diagnostics {
-                            message: "expected '\"', found EOF".to_string(),
-                            severity: Severity::Error,
-                            span: Span {
+                    Some(ch2) => {
+                        current += ch2.len_utf8();
+                    }
+                    None => {
+                        return Err(Diagnostics::parser_error(
+                            "expected '\"', found EOF".to_string(),
+                            Span {
                                 start,
                                 end: current,
                             },
-                        });
-                    };
-                    current += ch2.len_utf8();
-
-                    if ch2 == '"' {
-                        break;
+                        ));
                     }
                 }
-                tokens.push(Token {
-                    kind: TokenKind::String(Rc::from(&source[start + 1..current - 1])),
-                    span: Span {
-                        start,
-                        end: current,
-                    },
-                });
             }
-            '(' => tokens.push(Token {
-                kind: TokenKind::LeftParen,
+
+            tokens.push(Token {
+                kind: TokenKind::String(Rc::from(&source[start + 1..current - 1])),
                 span: Span {
                     start,
                     end: current,
                 },
-            }),
-            ')' => tokens.push(Token {
-                kind: TokenKind::RightParen,
-                span: Span {
-                    start,
-                    end: current,
-                },
-            }),
-            '=' => tokens.push(Token {
-                kind: TokenKind::Equal,
-                span: Span {
-                    start,
-                    end: current,
-                },
-            }),
-            '\\' => tokens.push(Token {
-                kind: TokenKind::Lambda,
-                span: Span {
-                    start,
-                    end: current,
-                },
-            }),
-            _ => {
-                loop {
-                    if matches!(ch, 'A'..='Z' | 'a'..='z') {
-                        break;
-                    }
-                    current += ch.len_utf8();
+            });
+            continue;
+        }
+
+        if matches!(ch, '0'..='9') {
+            while let Some(&next_ch) = chars.peek() {
+                if matches!(next_ch, '0'..='9') {
+                    chars.next();
+                    current += next_ch.len_utf8();
+                } else {
+                    break;
                 }
-                tokens.push(Token {
-                    kind: match &source[start..current] {
-                        "->" => TokenKind::Arrow,
-                        _ => TokenKind::Symbol(Rc::from(&source[start..current])),
-                    },
-                    span: Span {
-                        start,
-                        end: current,
-                    },
-                });
+            }
+            tokens.push(Token {
+                kind: TokenKind::Int(source[start..current].parse().unwrap()),
+                span: Span {
+                    start,
+                    end: current,
+                },
+            });
+            continue;
+        }
+
+        if ch == '(' || ch == ')' || ch == '=' || ch == '\\' {
+            chars.next();
+            current += ch.len_utf8();
+            let kind = match ch {
+                '(' => TokenKind::LeftParen,
+                ')' => TokenKind::RightParen,
+                '=' => TokenKind::Equal,
+                '\\' => TokenKind::Lambda,
+                _ => unreachable!(),
+            };
+            tokens.push(Token {
+                kind,
+                span: Span {
+                    start,
+                    end: current,
+                },
+            });
+            continue;
+        }
+
+        while let Some(&next_ch) = chars.peek() {
+            if !next_ch.is_whitespace()
+                && !matches!(next_ch, 'A'..='Z' | 'a'..='z' | '0'..='9' | '(' | ')' | '"')
+            {
+                chars.next();
+                current += next_ch.len_utf8();
+            } else {
+                break;
             }
         }
+
+        let symbol_str = &source[start..current];
+        let kind = match symbol_str {
+            "->" => TokenKind::Arrow,
+            _ => TokenKind::Symbol(Rc::from(symbol_str)),
+        };
+
+        tokens.push(Token {
+            kind,
+            span: Span {
+                start,
+                end: current,
+            },
+        });
     }
 
     Ok(tokens)

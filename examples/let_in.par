@@ -1,0 +1,6 @@
+add a b = let
+    result = a + b
+in
+    result
+
+main = print (add 1 2)

@@ -6,6 +6,7 @@ pub const OPERATOR_RET: Operator = 2;
 pub const OPERATOR_LOAD_INT: Operator = 3;
 pub const OPERATOR_LOAD_STR: Operator = 4;
 
+#[derive(Debug)]
 pub struct Instruction {
     pub operator: Operator,
     pub a: usize,
@@ -14,6 +15,7 @@ pub struct Instruction {
 }
 
 pub type Bytecode = Vec<Instruction>;
+pub type DataPool = Vec<VirtualMachineData>;
 
 #[derive(Clone)]
 pub enum VirtualMachineData {
@@ -30,7 +32,8 @@ struct FrameInfo {
 
 pub struct VirtualMachine {
     bytecode: Bytecode,
-    data_pool: Vec<VirtualMachineData>,
+    data_pool: DataPool,
+    pc: usize,
     register_file: Vec<VirtualMachineData>,
     call_stack: Vec<FrameInfo>,
 }
@@ -40,24 +43,28 @@ impl VirtualMachine {
         Self {
             bytecode: Vec::new(),
             data_pool: Vec::new(),
+            pc: 0,
             register_file: vec![VirtualMachineData::None; 1024],
             call_stack: Vec::with_capacity(32),
         }
     }
 
-    pub fn load(&mut self, bytecode: Bytecode, data_pool: Vec<VirtualMachineData>) {
+    pub fn load(&mut self, pc: usize, bytecode: Bytecode, data_pool: DataPool) {
+        self.pc = pc;
         self.bytecode = bytecode;
         self.data_pool = data_pool;
     }
 
-    pub fn run(&mut self) {
-        let mut pc = 0;
+    #[inline(always)]
+    pub unsafe fn run(&mut self) {
+        let mut pc = self.pc;
         let mut fp = 0;
 
         let code_len = self.bytecode.len();
 
         while pc < code_len {
             let inst = unsafe { self.bytecode.get_unchecked(pc) };
+            println!("running pc: {pc} fp: {fp}");
 
             match inst.operator {
                 OPERATOR_MOVE => unsafe {
@@ -98,6 +105,8 @@ impl VirtualMachine {
                 },
                 _ => unimplemented!(),
             }
+
+            pc += 1;
         }
     }
 }
