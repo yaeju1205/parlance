@@ -32,6 +32,11 @@ impl Allocator {
     }
 }
 
+pub trait BytecodeFunction {
+    fn get_name() -> String;
+    fn build_bytecode(compiler: &mut Compiler, dest: usize) -> ();
+}
+
 pub struct Compiler {
     allocator: Allocator,
     function_map: HashMap<FlattenIndex, usize>,
@@ -53,6 +58,37 @@ impl Compiler {
             data_pool: Vec::new(),
             flatten,
         })
+    }
+
+    pub fn with_flatten(mut self, flatten: Flatten) -> Self {
+        self.flatten = Rc::new(flatten);
+        self
+    }
+
+    pub fn with_bytecode_function(mut self, bytecode_func: impl BytecodeFunction) -> Self {
+        let mut bindings: HashMap<Rc<str>, FlattenBinding> = HashMap::new();
+
+        let bytecode_func_idx = self.flatten.bindings.len() + 1;
+        // bindings.insert(
+        //     Rc::from(bytecode_func),
+        //     FlattenBinding {
+        //         span: Span::default(),
+        //         value: bytecode_func_idx,
+        //     },
+        // );
+
+        let bytecode_func_dest = self.allocator.alloc();
+        self.function_map
+            .insert(bytecode_func_idx, bytecode_func_dest);
+
+        bindings.extend(self.flatten.bindings.clone());
+        let flatten = Flatten {
+            file: self.flatten.file.clone(),
+            bindings,
+        };
+
+        self.flatten = Rc::new(flatten);
+        self
     }
 
     pub fn compile_value(&mut self, value_idx: FlattenIndex) -> Result<usize, Diagnostics> {
@@ -155,4 +191,9 @@ impl Compiler {
             ))
         }
     }
+}
+
+pub struct NativeFunction {
+    pub name: String,
+    pub bytecode: Bytecode,
 }

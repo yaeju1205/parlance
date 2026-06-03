@@ -28,6 +28,7 @@ pub struct FlattenValue {
     pub kind: FlattenValueKind,
 }
 
+#[derive(Clone)]
 pub struct FlattenBinding {
     pub span: Span,
     pub value: FlattenIndex,
