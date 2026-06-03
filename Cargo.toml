@@ -9,6 +9,7 @@ members = [
     "parlance-parser",
     "parlance-compiler",
     "parlance-vm",
+    "parlance-stdlib",
 ]
 
 [dependencies]
@@ -16,3 +17,4 @@ parlance-diagnostics = { path = "parlance-diagnostics" }
 parlance-parser = { path = "parlance-parser" }
 parlance-compiler = { path = "parlance-compiler" }
 parlance-vm = { path = "parlance-vm" }
+parlance-stdlib = { path = "parlance-stdlib" }

@@ -16,7 +16,7 @@ mod desugarer;
 mod flattener;
 
 #[derive(Default)]
-struct Allocator {
+pub struct Allocator {
     pub register: usize,
 }
 
@@ -33,17 +33,17 @@ impl Allocator {
 }
 
 pub trait BytecodeFunction {
-    fn get_name() -> String;
-    fn build_bytecode(compiler: &mut Compiler, dest: usize) -> ();
+    fn get_name(&self) -> String;
+    fn build_bytecode(&self, compiler: &mut Compiler) -> ();
 }
 
 pub struct Compiler {
-    allocator: Allocator,
-    function_map: HashMap<FlattenIndex, usize>,
-    string_cache: HashMap<String, usize>,
-    bytecode: Bytecode,
-    data_pool: DataPool,
-    flatten: Rc<Flatten>,
+    pub allocator: Allocator,
+    pub function_map: HashMap<FlattenIndex, usize>,
+    pub string_cache: HashMap<String, usize>,
+    pub flatten: Rc<Flatten>,
+    pub bytecode: Bytecode,
+    pub data_pool: DataPool,
 }
 
 impl Compiler {
@@ -60,26 +60,24 @@ impl Compiler {
         })
     }
 
-    pub fn with_flatten(mut self, flatten: Flatten) -> Self {
-        self.flatten = Rc::new(flatten);
-        self
-    }
-
-    pub fn with_bytecode_function(mut self, bytecode_func: impl BytecodeFunction) -> Self {
+    pub fn with_bytecode_functions(mut self, bytecode_funcs: Vec<impl BytecodeFunction>) -> Self {
         let mut bindings: HashMap<Rc<str>, FlattenBinding> = HashMap::new();
 
-        let bytecode_func_idx = self.flatten.bindings.len() + 1;
-        // bindings.insert(
-        //     Rc::from(bytecode_func),
-        //     FlattenBinding {
-        //         span: Span::default(),
-        //         value: bytecode_func_idx,
-        //     },
-        // );
+        for bytecode_func in bytecode_funcs.into_iter() {
+            let bytecode_func_idx = self.flatten.bindings.len() + 1;
+            bindings.insert(
+                Rc::from(bytecode_func.get_name().as_str()),
+                FlattenBinding {
+                    span: Span::default(),
+                    value: bytecode_func_idx,
+                },
+            );
 
-        let bytecode_func_dest = self.allocator.alloc();
-        self.function_map
-            .insert(bytecode_func_idx, bytecode_func_dest);
+            let bytecode_func_dest = self.allocator.alloc();
+            self.function_map
+                .insert(bytecode_func_idx, bytecode_func_dest);
+            bytecode_func.build_bytecode(&mut self);
+        }
 
         bindings.extend(self.flatten.bindings.clone());
         let flatten = Flatten {
@@ -191,9 +189,4 @@ impl Compiler {
             ))
         }
     }
-}
-
-pub struct NativeFunction {
-    pub name: String,
-    pub bytecode: Bytecode,
 }

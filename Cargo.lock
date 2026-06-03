@@ -9,6 +9,7 @@ dependencies = [
  "parlance-compiler",
  "parlance-diagnostics",
  "parlance-parser",
+ "parlance-stdlib",
  "parlance-vm",
 ]
 
@@ -30,6 +31,15 @@ name = "parlance-parser"
 version = "0.1.0"
 dependencies = [
  "parlance-diagnostics",
+]
+
+[[package]]
+name = "parlance-stdlib"
+version = "0.1.0"
+dependencies = [
+ "parlance-compiler",
+ "parlance-diagnostics",
+ "parlance-vm",
 ]
 
 [[package]]
