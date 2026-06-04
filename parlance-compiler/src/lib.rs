@@ -4,7 +4,7 @@ use parlance_diagnostics::{Diagnostics, Span};
 use parlance_parser::Statement;
 use parlance_vm::{
     Bytecode, DataPool, Instruction, OPERATOR_CALL, OPERATOR_LOAD_INT, OPERATOR_LOAD_STR,
-    OPERATOR_RET, VirtualMachineData,
+    OPERATOR_RET, OPERATOR_STOP, VirtualMachineData,
 };
 
 use crate::{
@@ -34,11 +34,11 @@ impl Allocator {
 
 pub trait BytecodeFunction {
     fn get_name(&self) -> String;
-    fn build_bytecode(&self, compiler: &mut Compiler) -> ();
+    fn build_bytecode(&self, compiler: &mut Compiler, dest: usize) -> ();
 }
 
 pub struct Compiler {
-    pub allocator: Allocator,
+    pub register_allocator: Allocator,
     pub function_map: HashMap<FlattenIndex, usize>,
     pub string_cache: HashMap<String, usize>,
     pub flatten: Rc<Flatten>,
@@ -51,7 +51,7 @@ impl Compiler {
         let bindings = Desugarer::new().desugar(stats)?;
         let flatten = Rc::new(Flattener::new().flatten(bindings)?);
         Ok(Self {
-            allocator: Allocator::new(),
+            register_allocator: Allocator::new(),
             function_map: HashMap::new(),
             string_cache: HashMap::new(),
             bytecode: Vec::new(),
@@ -73,10 +73,10 @@ impl Compiler {
                 },
             );
 
-            let bytecode_func_dest = self.allocator.alloc();
+            let bytecode_func_dest = self.register_allocator.alloc();
             self.function_map
                 .insert(bytecode_func_idx, bytecode_func_dest);
-            bytecode_func.build_bytecode(&mut self);
+            bytecode_func.build_bytecode(&mut self, bytecode_func_dest);
         }
 
         bindings.extend(self.flatten.bindings.clone());
@@ -93,7 +93,7 @@ impl Compiler {
         let value = self.flatten.file[value_idx].clone();
         match &value.kind {
             FlattenValueKind::Int(int_value) => {
-                let dest = self.allocator.alloc();
+                let dest = self.register_allocator.alloc();
 
                 self.bytecode.push(Instruction {
                     operator: OPERATOR_LOAD_INT,
@@ -115,7 +115,7 @@ impl Compiler {
                         idx
                     });
 
-                let dest = self.allocator.alloc();
+                let dest = self.register_allocator.alloc();
 
                 self.bytecode.push(Instruction {
                     operator: OPERATOR_LOAD_STR,
@@ -127,7 +127,7 @@ impl Compiler {
                 Ok(dest)
             }
             FlattenValueKind::FunctionCall { callee, arg } => {
-                let callee_reg = if let Some(reg) = self.function_map.get(callee) {
+                let callee_pc = if let Some(reg) = self.function_map.get(callee) {
                     *reg
                 } else {
                     self.compile_value(*callee)?
@@ -135,12 +135,12 @@ impl Compiler {
 
                 let arg_reg = self.compile_value(*arg)?;
 
-                let dest = self.allocator.alloc();
+                let dest = self.register_allocator.alloc();
 
                 self.bytecode.push(Instruction {
                     operator: OPERATOR_CALL,
                     a: dest,
-                    b: callee_reg.clone(),
+                    b: callee_pc.clone(),
                     c: arg_reg,
                 });
 
@@ -148,7 +148,8 @@ impl Compiler {
             }
             FlattenValueKind::Variable(idx) => self.compile_value(*idx),
             FlattenValueKind::Function { body, .. } => {
-                let dest = self.allocator.alloc();
+                let pc = self.bytecode.len();
+                let dest = self.register_allocator.alloc();
                 let body_reg = self.compile_value(*body)?;
 
                 if let None = self.function_map.get(&value_idx) {
@@ -162,14 +163,21 @@ impl Compiler {
                     c: 0,
                 });
 
-                Ok(dest)
+                Ok(pc)
             }
             FlattenValueKind::Param { .. } => Ok(0),
         }
     }
 
     pub fn compile_binding(&mut self, binding: &FlattenBinding) -> Result<usize, Diagnostics> {
-        Ok(self.compile_value(binding.value)?)
+        let value = self.compile_value(binding.value)?;
+        self.bytecode.push(Instruction {
+            operator: OPERATOR_STOP,
+            a: 0,
+            b: 0,
+            c: 0,
+        });
+        Ok(value)
     }
 
     pub fn compile(

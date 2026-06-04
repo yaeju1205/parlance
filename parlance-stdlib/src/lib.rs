@@ -1,52 +1,26 @@
 use parlance_compiler::{BytecodeFunction, Compiler};
 use parlance_vm::{
-    Instruction, OPERATOR_ADD_INT, OPERATOR_CALL, OPERATOR_GOTO, OPERATOR_MOVE, OPERATOR_RET,
+    Instruction, OPERATOR_ADD_INT, OPERATOR_CALL, OPERATOR_GOTO, OPERATOR_MOVE, OPERATOR_PRINT,
+    OPERATOR_RET,
 };
 
-pub struct IntAdd;
+pub struct Print;
 
-impl BytecodeFunction for IntAdd {
+impl BytecodeFunction for Print {
     fn get_name(&self) -> String {
-        "add".to_string()
+        "print".to_string()
     }
 
-    fn build_bytecode(&self, compiler: &mut Compiler) -> () {
-        let dest = compiler.allocator.alloc();
-        let lhs = compiler.allocator.alloc();
-
+    fn build_bytecode(&self, compiler: &mut Compiler, _: usize) -> () {
         compiler.bytecode.push(Instruction {
-            operator: OPERATOR_MOVE,
-            a: lhs,
+            operator: OPERATOR_PRINT,
+            a: 0,
             b: 0,
             c: 0,
         });
-
         compiler.bytecode.push(Instruction {
             operator: OPERATOR_RET,
-            a: 0, // argument
-            b: 0,
-            c: 0,
-        });
-
-        let add_pc = compiler.allocator.alloc();
-
-        compiler.bytecode.push(Instruction {
-            operator: OPERATOR_GOTO,
-            a: add_pc,
-            b: 0,
-            c: 0,
-        });
-
-        compiler.bytecode.push(Instruction {
-            operator: OPERATOR_ADD_INT,
-            a: dest,
-            b: lhs,
-            c: 0,
-        });
-
-        compiler.bytecode.push(Instruction {
-            operator: OPERATOR_RET,
-            a: dest,
+            a: 0,
             b: 0,
             c: 0,
         });

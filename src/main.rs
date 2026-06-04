@@ -3,7 +3,7 @@ use std::{env, fs, process};
 use parlance_compiler::Compiler;
 use parlance_diagnostics::Diagnostics;
 use parlance_parser::Parser;
-use parlance_stdlib::IntAdd;
+use parlance_stdlib::Print;
 use parlance_vm::VirtualMachine;
 
 fn load_vm(source: &str) -> Result<VirtualMachine, Diagnostics> {
@@ -13,7 +13,7 @@ fn load_vm(source: &str) -> Result<VirtualMachine, Diagnostics> {
     let stats = parser.parse()?;
     println!("!) parsing complate");
 
-    let compiler = Compiler::new(stats)?.with_bytecode_functions(vec![IntAdd]);
+    let compiler = Compiler::new(stats)?.with_bytecode_functions(vec![Print]);
 
     let (pc, bytecode, data_pool) = compiler.compile("main")?;
     println!("!) compile complate");

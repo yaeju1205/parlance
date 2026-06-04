@@ -7,6 +7,8 @@ pub const OPERATOR_RET: Operator = 3;
 pub const OPERATOR_LOAD_INT: Operator = 4;
 pub const OPERATOR_LOAD_STR: Operator = 5;
 pub const OPERATOR_ADD_INT: Operator = 6;
+pub const OPERATOR_PRINT: Operator = 7;
+pub const OPERATOR_STOP: Operator = 8;
 
 #[derive(Debug)]
 pub struct Instruction {
@@ -19,7 +21,7 @@ pub struct Instruction {
 pub type Bytecode = Vec<Instruction>;
 pub type DataPool = Vec<VirtualMachineData>;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum VirtualMachineData {
     Int(i32),
     StrPtr(*const str),
@@ -67,7 +69,7 @@ impl VirtualMachine {
         while pc < code_len {
             let inst = unsafe { self.bytecode.get_unchecked(pc) };
             println!("running pc: {pc} fp: {fp}");
-
+            println!("operator: {}", inst.operator);
             match inst.operator {
                 OPERATOR_GOTO => pc = inst.a,
                 OPERATOR_MOVE => unsafe {
@@ -83,6 +85,8 @@ impl VirtualMachine {
 
                     fp += inst.c;
                     pc = inst.b;
+
+                    continue;
                 }
                 OPERATOR_RET => {
                     let ret = unsafe { self.register_file.get_unchecked(fp + inst.a).clone() };
@@ -97,10 +101,12 @@ impl VirtualMachine {
                     }
 
                     pc = frame.return_pc;
+
+                    continue;
                 }
                 OPERATOR_LOAD_INT => unsafe {
                     *self.register_file.get_unchecked_mut(fp + inst.a) =
-                        VirtualMachineData::Int(inst.b as i32)
+                        VirtualMachineData::Int(inst.b as i32);
                 },
                 OPERATOR_LOAD_STR => unsafe {
                     *self.register_file.get_unchecked_mut(fp + inst.a) =
@@ -124,6 +130,15 @@ impl VirtualMachine {
                         *self.register_file.get_unchecked_mut(fp + inst.a) =
                             VirtualMachineData::Int(l_val + r_val);
                     }
+                }
+                OPERATOR_PRINT => unsafe {
+                    println!(
+                        "parlance print > {:?}",
+                        self.register_file.get_unchecked_mut(fp + inst.a)
+                    );
+                },
+                OPERATOR_STOP => {
+                    return;
                 }
                 _ => unimplemented!(),
             }
