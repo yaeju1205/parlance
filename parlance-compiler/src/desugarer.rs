@@ -32,6 +32,7 @@ pub struct DesugarValue {
     pub kind: DesugarValueKind,
 }
 
+#[derive(Debug)]
 pub struct DesugarBinding {
     pub span: Span,
     pub name: Rc<str>,
@@ -95,11 +96,11 @@ impl Desugarer {
             ExpressionKind::InfixCall { operator, lhs, rhs } => {
                 let Some(comb_rule) = self.infix_pool.get(&operator.kind) else {
                     return Err(Diagnostics::compiler_error(
-                        format!("can not found infix '{}'", operator.kind),
+                        format!("not found infix '{}'", operator.kind),
                         operator.span.clone(),
                     ));
                 };
-                match *comb_rule {
+                match comb_rule {
                     InfinixCombineRule::Left => Ok(DesugarValue {
                         span: expr.span.clone(),
                         kind: DesugarValueKind::FunctionCall {
@@ -150,7 +151,7 @@ impl Desugarer {
             }),
             ExpressionKind::Int(value) => Ok(DesugarValue {
                 span: expr.span.clone(),
-                kind: DesugarValueKind::Int(*value),
+                kind: DesugarValueKind::Int(value.clone()),
             }),
             ExpressionKind::Group(inner) => Ok(self.desugar_expression(inner.clone())?),
         }
@@ -202,7 +203,8 @@ impl Desugarer {
                 params,
                 body,
             } => {
-                self.infix_pool.insert(operator.kind.clone(), *combine_rule);
+                self.infix_pool
+                    .insert(operator.kind.clone(), combine_rule.clone());
 
                 let mut value = self.desugar_expression(body.clone())?;
 

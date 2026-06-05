@@ -30,7 +30,6 @@ pub enum VirtualMachineData {
 
 struct FrameInfo {
     return_pc: usize,
-    old_fp: usize,
     dest_register: usize,
 }
 
@@ -62,42 +61,36 @@ impl VirtualMachine {
     #[inline(always)]
     pub unsafe fn run(&mut self) {
         let mut pc = self.pc;
-        let mut fp = 0;
 
         let code_len = self.bytecode.len();
 
         while pc < code_len {
             let inst = unsafe { self.bytecode.get_unchecked(pc) };
-            println!("running pc: {pc} fp: {fp}");
+            println!("running pc: {pc}");
             println!("operator: {}", inst.operator);
             match inst.operator {
                 OPERATOR_GOTO => pc = inst.a,
                 OPERATOR_MOVE => unsafe {
-                    *self.register_file.get_unchecked_mut(fp + inst.a) =
-                        self.register_file.get_unchecked(fp + inst.b).clone();
+                    *self.register_file.get_unchecked_mut(inst.a) =
+                        self.register_file.get_unchecked(inst.b).clone();
                 },
                 OPERATOR_CALL => {
                     self.call_stack.push(FrameInfo {
                         return_pc: pc + 1,
-                        old_fp: fp,
                         dest_register: inst.a,
                     });
 
-                    fp += inst.c;
                     pc = inst.b;
 
                     continue;
                 }
                 OPERATOR_RET => {
-                    let ret = unsafe { self.register_file.get_unchecked(fp + inst.a).clone() };
+                    let ret = unsafe { self.register_file.get_unchecked(inst.a).clone() };
 
                     let frame = unsafe { self.call_stack.pop().unwrap_unchecked() };
-                    fp = frame.old_fp;
 
                     unsafe {
-                        *self
-                            .register_file
-                            .get_unchecked_mut(fp + frame.dest_register) = ret;
+                        *self.register_file.get_unchecked_mut(frame.dest_register) = ret;
                     }
 
                     pc = frame.return_pc;
@@ -105,36 +98,36 @@ impl VirtualMachine {
                     continue;
                 }
                 OPERATOR_LOAD_INT => unsafe {
-                    *self.register_file.get_unchecked_mut(fp + inst.a) =
+                    *self.register_file.get_unchecked_mut(inst.a) =
                         VirtualMachineData::Int(inst.b as i32);
                 },
                 OPERATOR_LOAD_STR => unsafe {
-                    *self.register_file.get_unchecked_mut(fp + inst.a) =
+                    *self.register_file.get_unchecked_mut(inst.a) =
                         self.data_pool.get_unchecked(inst.b).clone()
                 },
                 OPERATOR_ADD_INT => {
-                    let lhs = unsafe { self.register_file.get_unchecked(fp + inst.b) };
-                    let rhs = unsafe { self.register_file.get_unchecked(fp + inst.c) };
+                    let lhs = unsafe { self.register_file.get_unchecked(inst.b) };
+                    let rhs = unsafe { self.register_file.get_unchecked(inst.c) };
 
                     unsafe {
                         let l_val = match lhs {
-                            VirtualMachineData::Int(v) => *v,
+                            VirtualMachineData::Int(v) => v.clone(),
                             _ => std::hint::unreachable_unchecked(),
                         };
 
                         let r_val = match rhs {
-                            VirtualMachineData::Int(v) => *v,
+                            VirtualMachineData::Int(v) => v.clone(),
                             _ => std::hint::unreachable_unchecked(),
                         };
 
-                        *self.register_file.get_unchecked_mut(fp + inst.a) =
+                        *self.register_file.get_unchecked_mut(inst.a) =
                             VirtualMachineData::Int(l_val + r_val);
                     }
                 }
                 OPERATOR_PRINT => unsafe {
                     println!(
                         "parlance print > {:?}",
-                        self.register_file.get_unchecked_mut(fp + inst.a)
+                        self.register_file.get_unchecked_mut(inst.a)
                     );
                 },
                 OPERATOR_STOP => {

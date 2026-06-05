@@ -264,7 +264,7 @@ impl<'a> Parser<'a> {
             }),
             TokenKind::Int(value) => Ok(Expression {
                 span: token.span.clone(),
-                kind: ExpressionKind::Int(*value),
+                kind: ExpressionKind::Int(value.clone()),
             }),
             TokenKind::NewLine => self.parse_primary_expression(),
             _ => Err(Diagnostics::parser_error(
@@ -328,7 +328,10 @@ impl<'a> Parser<'a> {
                             start: expr.span.start.clone(),
                             end: right_paren.span.end.clone(),
                         },
-                        kind: ExpressionKind::Group(Rc::new(inner)),
+                        kind: ExpressionKind::FunctionCall {
+                            callee: Rc::new(expr),
+                            arg: Rc::new(inner),
+                        },
                     }
                 }
                 _ => break Ok(expr),

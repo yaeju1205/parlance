@@ -12,8 +12,10 @@ fn load_vm(source: &str) -> Result<VirtualMachine, Diagnostics> {
     let mut parser = Parser::new(&source)?;
     let stats = parser.parse()?;
     println!("!) parsing complate");
+    // println!("{:#?}", stats);
 
-    let compiler = Compiler::new(stats)?.with_bytecode_functions(vec![Print]);
+    let compiler = Compiler::new(stats, vec![Print])?;
+    // println!("{:#?}", compiler.flatten.clone());
 
     let (pc, bytecode, data_pool) = compiler.compile("main")?;
     println!("!) compile complate");

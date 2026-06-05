@@ -12,9 +12,10 @@ pub enum FlattenValueKind {
     Function {
         param: FlattenIndex,
         body: FlattenIndex,
-        size: usize,
     },
-    Param,
+    Param {
+        include_in: FlattenIndex,
+    },
     FunctionCall {
         callee: FlattenIndex,
         arg: FlattenIndex,
@@ -23,20 +24,16 @@ pub enum FlattenValueKind {
     Int(i32),
 }
 
+#[derive(Debug)]
 pub struct FlattenValue {
     pub span: Span,
     pub kind: FlattenValueKind,
 }
 
-#[derive(Clone)]
-pub struct FlattenBinding {
-    pub span: Span,
-    pub value: FlattenIndex,
-}
-
+#[derive(Debug)]
 pub struct Flatten {
     pub file: Vec<Rc<FlattenValue>>,
-    pub bindings: HashMap<Rc<str>, FlattenBinding>,
+    pub bindings: HashMap<Rc<str>, FlattenIndex>,
 }
 
 #[derive(Default)]
@@ -51,30 +48,35 @@ impl Flattener {
         Self::default()
     }
 
+    pub fn with_bindings(mut self, bindings: HashMap<Rc<str>, FlattenIndex>) -> Self {
+        self.binding_pool.extend(bindings);
+        self
+    }
+
     fn alloc(&mut self, value: FlattenValue) -> FlattenIndex {
         let idx = self.flatten_file.len();
         self.flatten_file.push(Rc::new(value));
         idx
     }
 
-    pub fn flatten_value(&mut self, value: Rc<DesugarValue>) -> Result<FlattenValue, Diagnostics> {
+    pub fn flatten_value(&mut self, value: Rc<DesugarValue>) -> Result<usize, Diagnostics> {
         match &value.kind {
             DesugarValueKind::Variable { name } => {
                 if let Some(variable_index) = self.binding_scope.get(name) {
-                    return Ok(FlattenValue {
+                    return Ok(self.alloc(FlattenValue {
                         span: value.span.clone(),
                         kind: FlattenValueKind::Variable(*variable_index),
-                    });
+                    }));
                 }
 
                 if let Some(binding_value) = self.binding_pool.get(name) {
-                    Ok(FlattenValue {
+                    Ok(self.alloc(FlattenValue {
                         span: value.span.clone(),
                         kind: FlattenValueKind::Variable(*binding_value),
-                    })
+                    }))
                 } else {
                     Err(Diagnostics::compiler_error(
-                        format!("unknown variable '{name}'"),
+                        format!("not found variable '{name}'"),
                         value.span.clone(),
                     ))
                 }
@@ -82,7 +84,7 @@ impl Flattener {
             DesugarValueKind::Function { param, body } => {
                 let param_index = self.alloc(FlattenValue {
                     span: param.span.clone(),
-                    kind: FlattenValueKind::Param,
+                    kind: FlattenValueKind::Param { include_in: 0 },
                 });
 
                 let parent_scope = self.binding_scope.clone();
@@ -96,65 +98,72 @@ impl Flattener {
 
                 self.binding_scope = parent_scope;
 
-                Ok(FlattenValue {
+                let func_idx = self.alloc(FlattenValue {
                     span: value.span.clone(),
                     kind: FlattenValueKind::Function {
                         param: param_index,
-                        body: self.alloc(body_value),
-                        size: self.flatten_file.len() - param_index,
+                        body: body_value,
                     },
-                })
+                });
+
+                self.flatten_file[param_index] = Rc::new(FlattenValue {
+                    span: param.span.clone(),
+                    kind: FlattenValueKind::Param {
+                        include_in: func_idx,
+                    },
+                });
+
+                Ok(func_idx)
             }
             DesugarValueKind::FunctionCall { callee, arg } => {
                 let callee_value = self.flatten_value(callee.clone())?;
                 let arg_value = self.flatten_value(arg.clone())?;
 
-                Ok(FlattenValue {
+                Ok(self.alloc(FlattenValue {
                     span: value.span.clone(),
                     kind: FlattenValueKind::FunctionCall {
-                        callee: self.alloc(callee_value),
-                        arg: self.alloc(arg_value),
+                        callee: callee_value,
+                        arg: arg_value,
                     },
-                })
+                }))
             }
-            DesugarValueKind::String(str_value) => Ok(FlattenValue {
+            DesugarValueKind::String(str_value) => Ok(self.alloc(FlattenValue {
                 span: value.span.clone(),
                 kind: FlattenValueKind::String(str_value.to_string()),
-            }),
-            DesugarValueKind::Int(int_value) => Ok(FlattenValue {
+            })),
+            DesugarValueKind::Int(int_value) => Ok(self.alloc(FlattenValue {
                 span: value.span.clone(),
-                kind: FlattenValueKind::Int(*int_value),
-            }),
+                kind: FlattenValueKind::Int(int_value.clone()),
+            })),
         }
     }
 
     pub fn flatten_binding(
         &mut self,
         binding: Rc<DesugarBinding>,
-    ) -> Result<FlattenBinding, Diagnostics> {
-        let value = self.flatten_value(binding.value.clone())?;
+    ) -> Result<FlattenIndex, Diagnostics> {
         let mut scope = HashMap::new();
 
         for scheme_binding in binding.scheme.iter() {
             let scheme_value = self.flatten_value(scheme_binding.value.clone())?;
-            scope.insert(scheme_binding.name.clone(), self.alloc(scheme_value));
+            scope.insert(scheme_binding.name.clone(), scheme_value);
         }
 
         self.binding_scope = scope;
 
-        let flatten_binding = FlattenBinding {
-            span: binding.span.clone(),
-            value: self.alloc(value),
-        };
+        let value_idx = self.flatten_value(binding.value.clone())?;
 
-        self.binding_pool
-            .insert(binding.name.clone(), flatten_binding.value);
+        self.binding_pool.insert(binding.name.clone(), value_idx);
 
-        Ok(flatten_binding)
+        Ok(value_idx)
     }
 
     pub fn flatten(mut self, bindings: Vec<DesugarBinding>) -> Result<Flatten, Diagnostics> {
         let mut flatten_bindings = HashMap::new();
+
+        for (name, value_idx) in self.binding_pool.iter() {
+            flatten_bindings.insert(name.clone(), *value_idx);
+        }
 
         for binding in bindings.into_iter() {
             flatten_bindings.insert(

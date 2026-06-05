@@ -1,8 +1,7 @@
-use parlance_compiler::{BytecodeFunction, Compiler};
-use parlance_vm::{
-    Instruction, OPERATOR_ADD_INT, OPERATOR_CALL, OPERATOR_GOTO, OPERATOR_MOVE, OPERATOR_PRINT,
-    OPERATOR_RET,
-};
+use std::rc::Rc;
+
+use parlance_compiler::{BytecodeFunction, Compiler, Function};
+use parlance_vm::{Bytecode, Instruction, OPERATOR_PRINT, OPERATOR_RET};
 
 pub struct Print;
 
@@ -11,18 +10,22 @@ impl BytecodeFunction for Print {
         "print".to_string()
     }
 
-    fn build_bytecode(&self, compiler: &mut Compiler, _: usize) -> () {
-        compiler.bytecode.push(Instruction {
+    fn build_bytecode(&self, _: &mut Compiler, func: Rc<Function>) -> Bytecode {
+        let mut bytecode = Vec::new();
+
+        bytecode.push(Instruction {
             operator: OPERATOR_PRINT,
-            a: 0,
+            a: func.param_register,
             b: 0,
             c: 0,
         });
-        compiler.bytecode.push(Instruction {
+        bytecode.push(Instruction {
             operator: OPERATOR_RET,
             a: 0,
             b: 0,
             c: 0,
         });
+
+        bytecode
     }
 }
