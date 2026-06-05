@@ -307,7 +307,7 @@ impl<'a> Parser<'a> {
                     };
                 }
                 TokenKind::Identifier(_) | TokenKind::String(_) | TokenKind::Int(_) => {
-                    let arg = self.parse_expression()?;
+                    let arg = self.parse_primary_expression()?;
                     expr = Expression {
                         span: Span {
                             start: expr.span.start.clone(),

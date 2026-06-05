@@ -8,7 +8,6 @@ pub const OPERATOR_LOAD_INT: Operator = 4;
 pub const OPERATOR_LOAD_STR: Operator = 5;
 pub const OPERATOR_ADD_INT: Operator = 6;
 pub const OPERATOR_PRINT: Operator = 7;
-pub const OPERATOR_STOP: Operator = 8;
 
 #[derive(Debug)]
 pub struct Instruction {
@@ -66,8 +65,6 @@ impl VirtualMachine {
 
         while pc < code_len {
             let inst = unsafe { self.bytecode.get_unchecked(pc) };
-            // println!("running pc: {pc}");
-            // println!("operator: {}", inst.operator);
             match inst.operator {
                 OPERATOR_GOTO => pc = inst.a,
                 OPERATOR_MOVE => unsafe {
@@ -130,9 +127,6 @@ impl VirtualMachine {
                         self.register_file.get_unchecked_mut(inst.a)
                     );
                 },
-                OPERATOR_STOP => {
-                    return;
-                }
                 _ => unimplemented!(),
             }
 
