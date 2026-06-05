@@ -13,15 +13,13 @@ pub enum FlattenValueKind {
         param: FlattenIndex,
         body: FlattenIndex,
     },
-    Param {
-        include_in: FlattenIndex,
-    },
     FunctionCall {
         callee: FlattenIndex,
         arg: FlattenIndex,
     },
     String(String),
     Int(i32),
+    None,
 }
 
 #[derive(Debug)]
@@ -48,8 +46,11 @@ impl Flattener {
         Self::default()
     }
 
-    pub fn with_bindings(mut self, bindings: HashMap<Rc<str>, FlattenIndex>) -> Self {
-        self.binding_pool.extend(bindings);
+    pub fn with_bindings(mut self, bindings: Vec<(Rc<str>, FlattenValue)>) -> Self {
+        for (binding_name, binding_value) in bindings.into_iter() {
+            let value_idx = self.alloc(binding_value);
+            self.binding_pool.insert(binding_name, value_idx);
+        }
         self
     }
 
@@ -84,7 +85,7 @@ impl Flattener {
             DesugarValueKind::Function { param, body } => {
                 let param_index = self.alloc(FlattenValue {
                     span: param.span.clone(),
-                    kind: FlattenValueKind::Param { include_in: 0 },
+                    kind: FlattenValueKind::None,
                 });
 
                 let parent_scope = self.binding_scope.clone();
@@ -94,36 +95,32 @@ impl Flattener {
 
                 self.binding_scope = scope;
 
-                let body_value = self.flatten_value(body.clone())?;
+                let body_idx = self.flatten_value(body.clone())?;
 
                 self.binding_scope = parent_scope;
 
-                let func_idx = self.alloc(FlattenValue {
+                self.flatten_file[param_index] = Rc::new(FlattenValue {
+                    span: param.span.clone(),
+                    kind: FlattenValueKind::None,
+                });
+
+                Ok(self.alloc(FlattenValue {
                     span: value.span.clone(),
                     kind: FlattenValueKind::Function {
                         param: param_index,
-                        body: body_value,
+                        body: body_idx,
                     },
-                });
-
-                self.flatten_file[param_index] = Rc::new(FlattenValue {
-                    span: param.span.clone(),
-                    kind: FlattenValueKind::Param {
-                        include_in: func_idx,
-                    },
-                });
-
-                Ok(func_idx)
+                }))
             }
             DesugarValueKind::FunctionCall { callee, arg } => {
-                let callee_value = self.flatten_value(callee.clone())?;
-                let arg_value = self.flatten_value(arg.clone())?;
+                let callee_idx = self.flatten_value(callee.clone())?;
+                let arg_idx = self.flatten_value(arg.clone())?;
 
                 Ok(self.alloc(FlattenValue {
                     span: value.span.clone(),
                     kind: FlattenValueKind::FunctionCall {
-                        callee: callee_value,
-                        arg: arg_value,
+                        callee: callee_idx,
+                        arg: arg_idx,
                     },
                 }))
             }

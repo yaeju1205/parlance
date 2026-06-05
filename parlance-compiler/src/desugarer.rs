@@ -34,7 +34,6 @@ pub struct DesugarValue {
 
 #[derive(Debug)]
 pub struct DesugarBinding {
-    pub span: Span,
     pub name: Rc<str>,
     pub value: Rc<DesugarValue>,
     pub scheme: Vec<DesugarBinding>,
@@ -168,7 +167,6 @@ impl Desugarer {
             StatementKind::Variable { name, value } => Ok(DesugarBinding {
                 name: name.clone(),
                 value: Rc::new(self.desugar_expression(value.clone())?),
-                span: stat.span.clone(),
                 scheme,
             }),
             StatementKind::Function { name, params, body } => {
@@ -191,7 +189,6 @@ impl Desugarer {
                 }
 
                 Ok(DesugarBinding {
-                    span: stat.span.clone(),
                     name: name.clone(),
                     value: Rc::new(value),
                     scheme,
@@ -225,7 +222,6 @@ impl Desugarer {
                 }
 
                 Ok(DesugarBinding {
-                    span: stat.span.clone(),
                     name: operator.kind.clone(),
                     value: Rc::new(value),
                     scheme,

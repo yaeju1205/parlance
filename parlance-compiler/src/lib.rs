@@ -4,12 +4,12 @@ use parlance_diagnostics::{Diagnostics, Span};
 use parlance_parser::Statement;
 use parlance_vm::{
     Bytecode, DataPool, Instruction, OPERATOR_CALL, OPERATOR_LOAD_INT, OPERATOR_LOAD_STR,
-    OPERATOR_MOVE, VirtualMachineData,
+    OPERATOR_MOVE, OPERATOR_RET, VirtualMachineData,
 };
 
 use crate::{
     desugarer::Desugarer,
-    flattener::{Flatten, FlattenIndex, FlattenValueKind, Flattener},
+    flattener::{Flatten, FlattenIndex, FlattenValue, FlattenValueKind, Flattener},
 };
 
 mod desugarer;
@@ -58,10 +58,16 @@ impl Compiler {
         bytecode_funcs: Vec<impl BytecodeFunction>,
     ) -> Result<Self, Diagnostics> {
         let bindings = Desugarer::new().desugar(stats)?;
-        let mut flatten_bindings: HashMap<Rc<str>, FlattenIndex> = HashMap::new();
+        let mut flatten_bindings = Vec::new();
 
-        for (binding_ndx, bytecode_func) in bytecode_funcs.iter().enumerate() {
-            flatten_bindings.insert(Rc::from(bytecode_func.get_name().as_str()), binding_ndx);
+        for bytecode_func in bytecode_funcs.iter() {
+            flatten_bindings.push((
+                Rc::from(bytecode_func.get_name().as_str()),
+                FlattenValue {
+                    span: Span::default(),
+                    kind: FlattenValueKind::None,
+                },
+            ));
         }
 
         let flatten = Rc::new(
@@ -80,7 +86,7 @@ impl Compiler {
             flatten,
         };
 
-        for (binding_idx, bytecode_func) in bytecode_funcs.into_iter().enumerate() {
+        for (binding_idx, bytecode_func) in bytecode_funcs.iter().enumerate() {
             let func = Rc::new(Function {
                 param_register: compiler.register_allocator.alloc(),
                 pc: compiler.main_pc,
@@ -107,11 +113,17 @@ impl Compiler {
 
         match &value.kind {
             FlattenValueKind::FunctionCall { callee, arg } => {
-                if !self.function_map.contains_key(callee) {
-                    self.compile_value(*callee)?;
+                let mut callee = *callee;
+
+                while let FlattenValueKind::Variable(idx) = self.flatten.file[callee].kind {
+                    callee = idx;
                 }
 
-                let Some(callee) = self.function_map.get(callee).cloned() else {
+                if !self.function_map.contains_key(&callee) {
+                    self.compile_value(callee)?;
+                }
+
+                let Some(callee) = self.function_map.get(&callee).cloned() else {
                     return Err(Diagnostics::compiler_error(
                         format!("not found function {callee}"),
                         value.span.clone(),
@@ -138,10 +150,6 @@ impl Compiler {
                 Ok(bytecode)
             }
             FlattenValueKind::Function { body, .. } => {
-                let bytecode = self.compile_value(*body)?;
-
-                self.main_pc += bytecode.len();
-                self.function_bytecode.extend(bytecode);
                 self.function_map.insert(
                     value_idx,
                     Rc::new(Function {
@@ -150,17 +158,19 @@ impl Compiler {
                     }),
                 );
 
+                let mut bytecode = self.compile_value(*body)?;
+
+                bytecode.push(Instruction {
+                    operator: OPERATOR_RET,
+                    a: self.register_allocator.register - 1,
+                    b: 0,
+                    c: 0,
+                });
+
+                self.main_pc += bytecode.len();
+                self.function_bytecode.extend(bytecode);
+
                 Ok(Vec::new())
-            }
-            FlattenValueKind::Param { include_in } => {
-                if self.function_map.contains_key(include_in) {
-                    Ok(Vec::new())
-                } else {
-                    Err(Diagnostics::compiler_error(
-                        format!("param {value_idx} is not include in {include_in}"),
-                        value.span.clone(),
-                    ))
-                }
             }
             FlattenValueKind::Int(int_value) => {
                 bytecode.push(Instruction {
@@ -192,6 +202,7 @@ impl Compiler {
                 Ok(bytecode)
             }
             FlattenValueKind::Variable(idx) => self.compile_value(*idx),
+            FlattenValueKind::None => Ok(Vec::new()),
         }
     }
 

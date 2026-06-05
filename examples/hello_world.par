@@ -1,3 +1,3 @@
-add a = a
+add a b = a
 
-main = print (add 2)
+main = print (add 2 0)

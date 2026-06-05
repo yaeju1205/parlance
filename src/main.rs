@@ -15,7 +15,7 @@ fn load_vm(source: &str) -> Result<VirtualMachine, Diagnostics> {
     // println!("{:#?}", stats);
 
     let compiler = Compiler::new(stats, vec![Print])?;
-    // println!("{:#?}", compiler.flatten.clone());
+    println!("{:#?}", compiler.flatten.clone());
 
     let (pc, bytecode, data_pool) = compiler.compile("main")?;
     println!("!) compile complate");

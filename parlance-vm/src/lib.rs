@@ -66,8 +66,8 @@ impl VirtualMachine {
 
         while pc < code_len {
             let inst = unsafe { self.bytecode.get_unchecked(pc) };
-            println!("running pc: {pc}");
-            println!("operator: {}", inst.operator);
+            // println!("running pc: {pc}");
+            // println!("operator: {}", inst.operator);
             match inst.operator {
                 OPERATOR_GOTO => pc = inst.a,
                 OPERATOR_MOVE => unsafe {
