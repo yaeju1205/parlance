@@ -37,9 +37,9 @@ pub struct Function {
     pub pc: usize,
 }
 
-pub trait BytecodeFunction {
-    fn get_name(&self) -> String;
-    fn build_bytecode(&self, compiler: &mut Compiler, func: Rc<Function>) -> Bytecode;
+pub struct BytecodeFunction {
+    pub name: String,
+    pub build_bytecode: fn(compiler: &mut Compiler, func: Rc<Function>) -> Bytecode,
 }
 
 pub struct Compiler {
@@ -56,14 +56,14 @@ pub struct Compiler {
 impl Compiler {
     pub fn new(
         stats: Vec<Statement>,
-        bytecode_funcs: Vec<impl BytecodeFunction>,
+        bytecode_funcs: Vec<BytecodeFunction>,
     ) -> Result<Self, Diagnostics> {
         let bindings = Desugarer::new().desugar(stats)?;
         let mut flatten_bindings = Vec::new();
 
         for bytecode_func in bytecode_funcs.iter() {
             flatten_bindings.push((
-                Rc::from(bytecode_func.get_name().as_str()),
+                Rc::from(bytecode_func.name.as_str()),
                 FlattenValue {
                     span: Span::default(),
                     kind: FlattenValueKind::None,
@@ -93,7 +93,7 @@ impl Compiler {
                 param_register: compiler.register_allocator.alloc(),
                 pc: compiler.main_pc,
             });
-            let bytecode = bytecode_func.build_bytecode(&mut compiler, func.clone());
+            let bytecode = (bytecode_func.build_bytecode)(&mut compiler, func.clone());
             compiler.main_pc += bytecode.len();
             compiler.function_bytecode.extend(bytecode);
             compiler.function_map.insert(binding_idx, func);
