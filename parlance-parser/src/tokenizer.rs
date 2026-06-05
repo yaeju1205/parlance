@@ -123,7 +123,17 @@ pub fn tokenize<'a>(source: &'a str) -> Result<Vec<Token>, Diagnostics> {
                     chars.next();
                     current += next_ch.len_utf8();
                 } else {
-                    break;
+                    if !next_ch.is_alphabetic() && next_ch != '_' {
+                        break;
+                    }
+
+                    return Err(Diagnostics::parser_error(
+                        format!("expected '0'~'9', found {next_ch}"),
+                        Span {
+                            start,
+                            end: current,
+                        },
+                    ));
                 }
             }
             tokens.push(Token {

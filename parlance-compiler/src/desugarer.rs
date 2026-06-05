@@ -61,7 +61,7 @@ impl Desugarer {
             ExpressionKind::Function { params, body } => Ok({
                 let mut value = self.desugar_expression(body.clone())?;
 
-                for param in params.iter() {
+                for param in params.iter().rev() {
                     value = DesugarValue {
                         span: Span {
                             start: expr.span.start.clone(),
@@ -172,7 +172,7 @@ impl Desugarer {
             StatementKind::Function { name, params, body } => {
                 let mut value = self.desugar_expression(body.clone())?;
 
-                for param in params.iter() {
+                for param in params.iter().rev() {
                     value = DesugarValue {
                         span: Span {
                             start: stat.span.start.clone(),
@@ -205,7 +205,7 @@ impl Desugarer {
 
                 let mut value = self.desugar_expression(body.clone())?;
 
-                for param in params.iter() {
+                for param in params.iter().rev() {
                     value = DesugarValue {
                         span: Span {
                             start: stat.span.start.clone(),

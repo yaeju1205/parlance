@@ -8,6 +8,8 @@ pub const OPERATOR_LOAD_INT: Operator = 4;
 pub const OPERATOR_LOAD_STR: Operator = 5;
 pub const OPERATOR_ADD_INT: Operator = 6;
 pub const OPERATOR_PRINT: Operator = 7;
+pub const OPERATOR_CALL_REG: Operator = 8;
+pub const OPERATOR_LOAD_FUNC: Operator = 9;
 
 #[derive(Debug)]
 pub struct Instruction {
@@ -24,6 +26,7 @@ pub type DataPool = Vec<VirtualMachineData>;
 pub enum VirtualMachineData {
     Int(i32),
     StrPtr(*const str),
+    FuncPtr { pc: usize, param_register: usize },
     None,
 }
 
@@ -126,6 +129,35 @@ impl VirtualMachine {
                         "parlance print > {:?}",
                         self.register_file.get_unchecked_mut(inst.a)
                     );
+                },
+                OPERATOR_CALL_REG => {
+                    self.call_stack.push(FrameInfo {
+                        return_pc: pc + 1,
+                        dest_register: inst.a,
+                    });
+
+                    unsafe {
+                        match self.register_file[inst.b] {
+                            VirtualMachineData::FuncPtr {
+                                pc: target_pc,
+                                param_register,
+                            } => {
+                                *self.register_file.get_unchecked_mut(param_register) =
+                                    self.register_file.get_unchecked(inst.c).clone();
+                                pc = target_pc;
+                            }
+                            _ => std::hint::unreachable_unchecked(),
+                        }
+                    };
+
+                    continue;
+                }
+
+                OPERATOR_LOAD_FUNC => unsafe {
+                    *self.register_file.get_unchecked_mut(inst.a) = VirtualMachineData::FuncPtr {
+                        pc: inst.b,
+                        param_register: inst.c,
+                    };
                 },
                 _ => unimplemented!(),
             }

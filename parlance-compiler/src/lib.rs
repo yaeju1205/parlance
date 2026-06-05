@@ -3,8 +3,8 @@ use std::{collections::HashMap, rc::Rc};
 use parlance_diagnostics::{Diagnostics, Span};
 use parlance_parser::Statement;
 use parlance_vm::{
-    Bytecode, DataPool, Instruction, OPERATOR_CALL, OPERATOR_LOAD_INT, OPERATOR_LOAD_STR,
-    OPERATOR_MOVE, OPERATOR_RET, VirtualMachineData,
+    Bytecode, DataPool, Instruction, OPERATOR_CALL, OPERATOR_CALL_REG, OPERATOR_LOAD_FUNC,
+    OPERATOR_LOAD_INT, OPERATOR_LOAD_STR, OPERATOR_MOVE, OPERATOR_RET, VirtualMachineData,
 };
 
 use crate::{
@@ -50,7 +50,7 @@ pub struct Compiler {
     pub string_cache: HashMap<String, usize>,
     pub data_pool: DataPool,
     pub flatten: Rc<Flatten>,
-    pub value_to_register: HashMap<FlattenIndex, usize>,
+    pub register_bindings: HashMap<FlattenIndex, usize>,
 }
 
 impl Compiler {
@@ -85,7 +85,7 @@ impl Compiler {
             string_cache: HashMap::new(),
             data_pool: Vec::new(),
             flatten,
-            value_to_register: HashMap::new(),
+            register_bindings: HashMap::new(),
         };
 
         for (binding_idx, bytecode_func) in bytecode_funcs.iter().enumerate() {
@@ -114,7 +114,7 @@ impl Compiler {
             ));
         };
 
-        if let Some(&reg) = self.value_to_register.get(&value_idx) {
+        if let Some(&reg) = self.register_bindings.get(&value_idx) {
             return Ok((reg, Vec::new()));
         }
 
@@ -122,69 +122,66 @@ impl Compiler {
 
         match &value.kind {
             FlattenValueKind::FunctionCall { callee, arg } => {
-                let mut actual_callee = *callee;
-                while let FlattenValueKind::Variable(idx) = self.flatten.file[actual_callee].kind {
-                    actual_callee = idx;
+                let mut callee_idx = *callee;
+                while let FlattenValueKind::Variable(idx) = self.flatten.file[callee_idx].kind {
+                    callee_idx = idx;
                 }
-
-                if !self.function_map.contains_key(&actual_callee) {
-                    let (_, callee_bc) = self.compile_value(actual_callee)?;
-                    bytecode.extend(callee_bc);
-                }
-
-                let Some(callee_func) = self.function_map.get(&actual_callee).cloned() else {
-                    return Err(Diagnostics::compiler_error(
-                        format!("not found function {actual_callee}"),
-                        value.span.clone(),
-                    ));
-                };
 
                 let (arg_reg, arg_bc) = self.compile_value(*arg)?;
-                bytecode.extend(arg_bc);
-
-                bytecode.push(Instruction {
-                    operator: OPERATOR_MOVE,
-                    a: callee_func.param_register,
-                    b: arg_reg,
-                    c: 0,
-                });
-
                 let ret_reg = self.register_allocator.alloc();
-                bytecode.push(Instruction {
-                    operator: OPERATOR_CALL,
-                    a: ret_reg,
-                    b: callee_func.pc,
-                    c: arg_reg,
-                });
 
-                self.value_to_register.insert(value_idx, ret_reg);
+                let mut bytecode: Bytecode = Vec::new();
+
+                if let Some(callee_func) = self.function_map.get(&callee_idx).cloned() {
+                    bytecode.extend(arg_bc);
+
+                    bytecode.push(Instruction {
+                        operator: OPERATOR_MOVE,
+                        a: callee_func.param_register,
+                        b: arg_reg,
+                        c: 0,
+                    });
+
+                    bytecode.push(Instruction {
+                        operator: OPERATOR_CALL,
+                        a: ret_reg,
+                        b: callee_func.pc,
+                        c: arg_reg,
+                    });
+                } else {
+                    let (callee_reg, callee_bc) = self.compile_value(*callee)?;
+
+                    bytecode.extend(callee_bc);
+                    bytecode.extend(arg_bc);
+
+                    bytecode.push(Instruction {
+                        operator: OPERATOR_CALL_REG,
+                        a: ret_reg,
+                        b: callee_reg,
+                        c: arg_reg,
+                    });
+                }
+
+                self.register_bindings.insert(value_idx, ret_reg);
                 Ok((ret_reg, bytecode))
             }
             FlattenValueKind::Function { param, body } => {
                 let param_register = self.register_allocator.alloc();
-                self.value_to_register.insert(*param, param_register);
+                self.register_bindings.insert(*param, param_register);
 
+                let (body_register, body_bytecode) = self.compile_value(*body)?;
+
+                let func_pc = self.main_pc;
                 let func = Rc::new(Function {
                     param_register,
-                    pc: 0,
+                    pc: func_pc,
                 });
                 self.function_map.insert(value_idx, func);
-
-                let (body_reg, body_bytecode) = self.compile_value(*body)?;
-
-                let actual_pc = self.main_pc;
-                self.function_map.insert(
-                    value_idx,
-                    Rc::new(Function {
-                        param_register,
-                        pc: actual_pc,
-                    }),
-                );
 
                 let mut func_bytecode = body_bytecode;
                 func_bytecode.push(Instruction {
                     operator: OPERATOR_RET,
-                    a: body_reg,
+                    a: body_register,
                     b: 0,
                     c: 0,
                 });
@@ -192,20 +189,26 @@ impl Compiler {
                 self.main_pc += func_bytecode.len();
                 self.function_bytecode.extend(func_bytecode);
 
-                let func_node_reg = self.register_allocator.alloc();
-                self.value_to_register.insert(value_idx, func_node_reg);
-                Ok((func_node_reg, bytecode))
+                let dest = self.register_allocator.alloc();
+                bytecode.push(Instruction {
+                    operator: OPERATOR_LOAD_FUNC,
+                    a: dest,
+                    b: func_pc,
+                    c: param_register,
+                });
+                self.register_bindings.insert(value_idx, dest);
+                Ok((dest, bytecode))
             }
             FlattenValueKind::Int(int_value) => {
-                let reg = self.register_allocator.alloc();
+                let dest = self.register_allocator.alloc();
                 bytecode.push(Instruction {
                     operator: OPERATOR_LOAD_INT,
-                    a: reg,
+                    a: dest,
                     b: *int_value as u32 as usize,
                     c: 0,
                 });
-                self.value_to_register.insert(value_idx, reg);
-                Ok((reg, bytecode))
+                self.register_bindings.insert(value_idx, dest);
+                Ok((dest, bytecode))
             }
             FlattenValueKind::String(str_value) => {
                 let pool_idx = if let Some(idx) = self.string_cache.get(str_value) {
@@ -218,26 +221,26 @@ impl Compiler {
                     idx
                 };
 
-                let reg = self.register_allocator.alloc();
+                let dest = self.register_allocator.alloc();
                 bytecode.push(Instruction {
                     operator: OPERATOR_LOAD_STR,
-                    a: reg,
+                    a: dest,
                     b: pool_idx,
                     c: 0,
                 });
-                self.value_to_register.insert(value_idx, reg);
-                Ok((reg, bytecode))
+                self.register_bindings.insert(value_idx, dest);
+                Ok((dest, bytecode))
             }
             FlattenValueKind::Variable(idx) => {
-                let (reg, var_bc) = self.compile_value(*idx)?;
-                self.value_to_register.insert(value_idx, reg);
+                let (dest, var_bc) = self.compile_value(*idx)?;
+                self.register_bindings.insert(value_idx, dest);
                 bytecode.extend(var_bc);
-                Ok((reg, bytecode))
+                Ok((dest, bytecode))
             }
             FlattenValueKind::None => {
-                let reg = self.register_allocator.alloc();
-                self.value_to_register.insert(value_idx, reg);
-                Ok((reg, bytecode))
+                let dest = self.register_allocator.alloc();
+                self.register_bindings.insert(value_idx, dest);
+                Ok((dest, bytecode))
             }
         }
     }
@@ -254,6 +257,7 @@ impl Compiler {
             bytecode.extend(func_bytecode);
             bytecode.extend(main_bytecode);
 
+            println!("start pc {}", self.main_pc);
             Ok((self.main_pc, bytecode, self.data_pool))
         } else {
             Err(Diagnostics::compiler_error(
@@ -263,4 +267,3 @@ impl Compiler {
         }
     }
 }
-
