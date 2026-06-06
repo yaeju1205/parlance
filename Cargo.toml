@@ -3,6 +3,10 @@ name = "parlance"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "parlance"
+path = "src/main.rs"
+
 [workspace]
 members = [
     "parlance-diagnostics",
@@ -10,9 +14,11 @@ members = [
     "parlance-compiler",
     "parlance-vm",
     "parlance-prelude",
+    "parlance-cli"
 ]
 
 [dependencies]
+parlance-cli = { path = "parlance-cli" }
 parlance-diagnostics = { path = "parlance-diagnostics" }
 parlance-parser = { path = "parlance-parser" }
 parlance-compiler = { path = "parlance-compiler" }

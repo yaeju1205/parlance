@@ -1,0 +1,16 @@
+[package]
+name = "parlance-cli"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "parlance"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.6.1", features = ["derive"] }
+parlance-diagnostics = { path = "../parlance-diagnostics" }
+parlance-parser = { path = "../parlance-parser" }
+parlance-compiler = { path = "../parlance-compiler" }
+parlance-vm = { path = "../parlance-vm" }
+parlance-prelude = { path = "../parlance-prelude" }

@@ -129,21 +129,45 @@ impl Flattener {
         binding: Rc<DesugarBinding>,
     ) -> Result<FlattenIndex, Diagnostics> {
         let parent_scope = self.binding_scope.clone();
+
         let mut scope = HashMap::new();
 
+        let main_reserved_idx = self.alloc(FlattenValue {
+            span: binding.value.span.clone(),
+            kind: FlattenValueKind::None,
+        });
+        scope.insert(binding.name.clone(), main_reserved_idx);
+
+        let mut reserved_scheme_indices = HashMap::new();
         for scheme_binding in binding.scheme.iter() {
-            let scheme_value = self.flatten_value(scheme_binding.value.clone())?;
-            scope.insert(scheme_binding.name.clone(), scheme_value);
+            let scheme_reserved_idx = self.alloc(FlattenValue {
+                span: scheme_binding.value.span.clone(),
+                kind: FlattenValueKind::None,
+            });
+            scope.insert(scheme_binding.name.clone(), scheme_reserved_idx);
+            reserved_scheme_indices.insert(scheme_binding.name.clone(), scheme_reserved_idx);
         }
 
         self.binding_scope = scope;
 
-        let value_idx = self.flatten_value(binding.value.clone())?;
-        self.binding_pool.insert(binding.name.clone(), value_idx);
+        for scheme_binding in binding.scheme.iter() {
+            let actual_idx = self.flatten_value(scheme_binding.value.clone())?;
+            let reserved_idx = *reserved_scheme_indices.get(&scheme_binding.name).unwrap();
+
+            self.flatten_file[reserved_idx] = self.flatten_file[actual_idx].clone();
+        }
+
+        let actual_main_idx = self.flatten_value(binding.value.clone())?;
+
+        let actual_main_value = self.flatten_file[actual_main_idx].clone();
+        self.flatten_file[main_reserved_idx] = actual_main_value;
+
+        self.binding_pool
+            .insert(binding.name.clone(), main_reserved_idx);
 
         self.binding_scope = parent_scope;
 
-        Ok(value_idx)
+        Ok(main_reserved_idx)
     }
 
     pub fn flatten(mut self, bindings: Vec<DesugarBinding>) -> Result<Flatten, Diagnostics> {

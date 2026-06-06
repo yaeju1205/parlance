@@ -1,6 +1,10 @@
 print = prelude::io::print
+add = prelude::math::add
 pair a b f = f a b
 first p = p (\x y -> x)
 second p = p (\x y -> y)
 
-main = print (prelude::math::add (first (pair 5 6)) 5)
+infix right + a b = add a b
+infix left $ a b = a b
+
+main = print $ ((first (pair 5 6)) + 5)

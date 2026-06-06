@@ -235,9 +235,21 @@ impl Compiler {
                 Ok((dest, bytecode))
             }
             FlattenValueKind::None => {
-                let dest = self.register_allocator.alloc();
-                self.register_bindings.insert(value_idx, dest);
-                Ok((dest, bytecode))
+                if let Some(func) = self.function_map.get(&value_idx).cloned() {
+                    let dest = self.register_allocator.alloc();
+                    bytecode.push(Instruction {
+                        operator: Operator::LoadFunc,
+                        a: dest,
+                        b: func.pc,
+                        c: func.param_register,
+                    });
+                    self.register_bindings.insert(value_idx, dest);
+                    Ok((dest, bytecode))
+                } else {
+                    let dest = self.register_allocator.alloc();
+                    self.register_bindings.insert(value_idx, dest);
+                    Ok((dest, bytecode))
+                }
             }
         }
     }
@@ -254,7 +266,6 @@ impl Compiler {
             bytecode.extend(func_bytecode);
             bytecode.extend(main_bytecode);
 
-            println!("start pc {}", self.main_pc);
             Ok((self.main_pc, bytecode, self.data_pool))
         } else {
             Err(Diagnostics::compiler_error(
