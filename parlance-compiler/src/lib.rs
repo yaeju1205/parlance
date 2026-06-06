@@ -2,10 +2,7 @@ use std::{collections::HashMap, rc::Rc};
 
 use parlance_diagnostics::{Diagnostics, Span};
 use parlance_parser::Statement;
-use parlance_vm::{
-    Bytecode, DataPool, Instruction, OPERATOR_CALL, OPERATOR_CALL_REG, OPERATOR_LOAD_FUNC,
-    OPERATOR_LOAD_INT, OPERATOR_LOAD_STR, OPERATOR_MOVE, OPERATOR_RET, VirtualMachineData,
-};
+use parlance_vm::{Bytecode, DataPool, Instruction, Operator, VirtualMachineData};
 
 use crate::{
     desugarer::Desugarer,
@@ -136,14 +133,14 @@ impl Compiler {
                     bytecode.extend(arg_bc);
 
                     bytecode.push(Instruction {
-                        operator: OPERATOR_MOVE,
+                        operator: Operator::Mov,
                         a: callee_func.param_register,
                         b: arg_reg,
                         c: 0,
                     });
 
                     bytecode.push(Instruction {
-                        operator: OPERATOR_CALL,
+                        operator: Operator::Call,
                         a: ret_reg,
                         b: callee_func.pc,
                         c: arg_reg,
@@ -155,7 +152,7 @@ impl Compiler {
                     bytecode.extend(arg_bc);
 
                     bytecode.push(Instruction {
-                        operator: OPERATOR_CALL_REG,
+                        operator: Operator::CallReg,
                         a: ret_reg,
                         b: callee_reg,
                         c: arg_reg,
@@ -180,7 +177,7 @@ impl Compiler {
 
                 let mut func_bytecode = body_bytecode;
                 func_bytecode.push(Instruction {
-                    operator: OPERATOR_RET,
+                    operator: Operator::Ret,
                     a: body_register,
                     b: 0,
                     c: 0,
@@ -191,7 +188,7 @@ impl Compiler {
 
                 let dest = self.register_allocator.alloc();
                 bytecode.push(Instruction {
-                    operator: OPERATOR_LOAD_FUNC,
+                    operator: Operator::LoadFunc,
                     a: dest,
                     b: func_pc,
                     c: param_register,
@@ -202,7 +199,7 @@ impl Compiler {
             FlattenValueKind::Int(int_value) => {
                 let dest = self.register_allocator.alloc();
                 bytecode.push(Instruction {
-                    operator: OPERATOR_LOAD_INT,
+                    operator: Operator::LoadInt,
                     a: dest,
                     b: *int_value as u32 as usize,
                     c: 0,
@@ -223,7 +220,7 @@ impl Compiler {
 
                 let dest = self.register_allocator.alloc();
                 bytecode.push(Instruction {
-                    operator: OPERATOR_LOAD_STR,
+                    operator: Operator::LoadStr,
                     a: dest,
                     b: pool_idx,
                     c: 0,

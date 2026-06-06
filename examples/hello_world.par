@@ -1,5 +1,6 @@
-print = std::io::print
+print = prelude::io::print
+pair a b f = f a b
+first p = p (\x y -> x)
+second p = p (\x y -> y)
 
-a b c = b
-
-main = print (std::church::first (std::church::pair 5 6))
+main = print (prelude::math::add (first (pair 5 6)) 5)

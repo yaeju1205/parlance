@@ -3,11 +3,7 @@ use std::{env, fs, process};
 use parlance_compiler::Compiler;
 use parlance_diagnostics::Diagnostics;
 use parlance_parser::Parser;
-use parlance_prelude::{
-    church::{first, pair, second},
-    io::print,
-    math::add,
-};
+use parlance_prelude::{io::print, math::add};
 use parlance_vm::VirtualMachine;
 
 fn load_vm(source: &str) -> Result<VirtualMachine, Diagnostics> {
@@ -18,7 +14,7 @@ fn load_vm(source: &str) -> Result<VirtualMachine, Diagnostics> {
     println!("!) parsing complate");
     // println!("{:#?}", stats);
 
-    let compiler = Compiler::new(stats, vec![print(), add(), pair(), first(), second()])?;
+    let compiler = Compiler::new(stats, vec![print(), add()])?;
     // println!("{:#?}", compiler.flatten.clone());
 
     let (pc, bytecode, data_pool) = compiler.compile("main")?;
