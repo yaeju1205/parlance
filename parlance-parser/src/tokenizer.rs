@@ -16,6 +16,7 @@ pub enum TokenKind {
     Infix,
     Import,
     Public,
+    Extern,
     NewLine,
     String(Rc<str>),
     Int(i32),
@@ -73,6 +74,7 @@ pub fn tokenize<'a>(source: &'a str) -> Result<Vec<Token>, Diagnostics> {
                 "infix" => TokenKind::Infix,
                 "import" => TokenKind::Import,
                 "public" => TokenKind::Public,
+                "extern" => TokenKind::Extern,
                 _ => TokenKind::Identifier(Rc::from(literal)),
             };
 

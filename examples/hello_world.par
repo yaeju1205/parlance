@@ -9,6 +9,5 @@ infix 2 + a b = add a b
 infix 3 * a b = mul a b
 infix 1 right $ a b = a b
 
-a b c = b + 3
-d e = e + 4
-main = print $ d $ a 4 5
+a b = a $ b + 1
+main = print $ a 0

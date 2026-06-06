@@ -6,6 +6,7 @@ pub enum Operator {
     Ret,
     Call,
     CallReg,
+    TailCallReg,
     LoadFunc,
     LoadInt,
     LoadStr,
@@ -122,6 +123,23 @@ impl VirtualMachine {
                         }
                     };
 
+                    continue;
+                }
+                Operator::TailCallReg => {
+                    unsafe {
+                        match self.register_file[inst.b] {
+                            VirtualMachineData::FuncPtr {
+                                pc: target_pc,
+                                param_register,
+                            } => {
+                                *self.register_file.get_unchecked_mut(param_register) =
+                                    self.register_file.get_unchecked(inst.c).clone();
+
+                                pc = target_pc;
+                            }
+                            _ => std::hint::unreachable_unchecked(),
+                        }
+                    };
                     continue;
                 }
                 Operator::LoadFunc => unsafe {

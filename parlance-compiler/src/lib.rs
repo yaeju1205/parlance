@@ -45,9 +45,9 @@ pub struct Compiler {
     pub function_bytecode: Bytecode,
     pub function_map: HashMap<FlattenIndex, Rc<Function>>,
     pub string_cache: HashMap<String, usize>,
+    pub register_bindings: HashMap<FlattenIndex, usize>,
     pub data_pool: DataPool,
     pub flatten: Rc<Flatten>,
-    pub register_bindings: HashMap<FlattenIndex, usize>,
 }
 
 impl Compiler {
@@ -102,6 +102,7 @@ impl Compiler {
     pub fn compile_value(
         &mut self,
         value_idx: FlattenIndex,
+        is_tail: bool,
     ) -> Result<(usize, Bytecode), Diagnostics> {
         let flatten = self.flatten.clone();
         let Some(value) = flatten.file.get(value_idx) else {
@@ -124,8 +125,7 @@ impl Compiler {
                     callee_idx = idx;
                 }
 
-                let (arg_reg, arg_bc) = self.compile_value(*arg)?;
-                let ret_reg = self.register_allocator.alloc();
+                let (arg_reg, arg_bc) = self.compile_value(*arg, false)?;
 
                 let mut bytecode: Bytecode = Vec::new();
 
@@ -139,34 +139,63 @@ impl Compiler {
                         c: 0,
                     });
 
-                    bytecode.push(Instruction {
-                        operator: Operator::Call,
-                        a: ret_reg,
-                        b: callee_func.pc,
-                        c: arg_reg,
-                    });
+                    if is_tail {
+                        bytecode.push(Instruction {
+                            operator: Operator::Goto,
+                            a: callee_func.pc,
+                            b: 0,
+                            c: 0,
+                        });
+
+                        Ok((0, bytecode))
+                    } else {
+                        let ret_reg = self.register_allocator.alloc();
+                        bytecode.push(Instruction {
+                            operator: Operator::Call,
+                            a: ret_reg,
+                            b: callee_func.pc,
+                            c: arg_reg,
+                        });
+                        self.register_bindings.insert(value_idx, ret_reg);
+                        Ok((ret_reg, bytecode))
+                    }
                 } else {
-                    let (callee_reg, callee_bc) = self.compile_value(*callee)?;
+                    let (callee_reg, callee_bc) = self.compile_value(*callee, false)?;
 
                     bytecode.extend(arg_bc);
                     bytecode.extend(callee_bc);
 
-                    bytecode.push(Instruction {
-                        operator: Operator::CallReg,
-                        a: ret_reg,
-                        b: callee_reg,
-                        c: arg_reg,
-                    });
-                }
+                    if is_tail {
+                        bytecode.push(Instruction {
+                            operator: Operator::TailCallReg,
+                            a: 0,
+                            b: callee_reg,
+                            c: arg_reg,
+                        });
 
-                self.register_bindings.insert(value_idx, ret_reg);
-                Ok((ret_reg, bytecode))
+                        Ok((0, bytecode))
+                    } else {
+                        let ret_reg = self.register_allocator.alloc();
+                        bytecode.push(Instruction {
+                            operator: Operator::CallReg,
+                            a: ret_reg,
+                            b: callee_reg,
+                            c: arg_reg,
+                        });
+
+                        self.register_bindings.insert(value_idx, ret_reg);
+                        Ok((ret_reg, bytecode))
+                    }
+                }
             }
             FlattenValueKind::Function { param, body } => {
                 let param_register = self.register_allocator.alloc();
                 self.register_bindings.insert(*param, param_register);
 
-                let (body_register, body_bytecode) = self.compile_value(*body)?;
+                let dest = self.register_allocator.alloc();
+                self.register_bindings.insert(value_idx, dest);
+
+                let (body_register, body_bytecode) = self.compile_value(*body, true)?;
 
                 let func_pc = self.main_pc;
                 let func = Rc::new(Function {
@@ -186,14 +215,12 @@ impl Compiler {
                 self.main_pc += func_bytecode.len();
                 self.function_bytecode.extend(func_bytecode);
 
-                let dest = self.register_allocator.alloc();
                 bytecode.push(Instruction {
                     operator: Operator::LoadFunc,
                     a: dest,
                     b: func_pc,
                     c: param_register,
                 });
-                self.register_bindings.insert(value_idx, dest);
                 Ok((dest, bytecode))
             }
             FlattenValueKind::Int(int_value) => {
@@ -229,7 +256,7 @@ impl Compiler {
                 Ok((dest, bytecode))
             }
             FlattenValueKind::Variable(idx) => {
-                let (dest, var_bc) = self.compile_value(*idx)?;
+                let (dest, var_bc) = self.compile_value(*idx, is_tail)?;
                 self.register_bindings.insert(value_idx, dest);
                 bytecode.extend(var_bc);
                 Ok((dest, bytecode))
@@ -259,7 +286,7 @@ impl Compiler {
         binding_name: &str,
     ) -> Result<(usize, Bytecode, DataPool), Diagnostics> {
         if let Some(value_idx) = self.flatten.clone().bindings.get(binding_name) {
-            let (_, main_bytecode) = self.compile_value(*value_idx)?;
+            let (_, main_bytecode) = self.compile_value(*value_idx, false)?;
             let func_bytecode = self.function_bytecode;
 
             let mut bytecode: Bytecode = Vec::new();
