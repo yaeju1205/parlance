@@ -1,7 +1,7 @@
 use std::{collections::HashMap, rc::Rc};
 
 use parlance_diagnostics::{Diagnostics, Span};
-use parlance_parser::{Expression, ExpressionKind, InfinixCombineRule, Statement, StatementKind};
+use parlance_parser::{Expression, ExpressionKind, Statement, StatementKind};
 
 #[derive(Debug)]
 pub struct Param {
@@ -40,9 +40,7 @@ pub struct DesugarBinding {
 }
 
 #[derive(Default)]
-pub struct Desugarer {
-    infix_pool: HashMap<Rc<str>, InfinixCombineRule>,
-}
+pub struct Desugarer {}
 
 impl Desugarer {
     pub fn new() -> Self {
@@ -92,58 +90,27 @@ impl Desugarer {
                     arg: Rc::new(self.desugar_expression(arg.clone())?),
                 },
             }),
-            ExpressionKind::InfixCall { operator, lhs, rhs } => {
-                let Some(comb_rule) = self.infix_pool.get(&operator.kind) else {
-                    return Err(Diagnostics::compiler_error(
-                        format!("not found infix '{}'", operator.kind),
-                        operator.span.clone(),
-                    ));
-                };
-                match comb_rule {
-                    InfinixCombineRule::Left => Ok(DesugarValue {
-                        span: expr.span.clone(),
+            ExpressionKind::InfixCall { operator, lhs, rhs } => Ok(DesugarValue {
+                span: expr.span.clone(),
+                kind: DesugarValueKind::FunctionCall {
+                    callee: Rc::new(DesugarValue {
+                        span: Span {
+                            start: operator.span.start.clone(),
+                            end: rhs.span.end.clone(),
+                        },
                         kind: DesugarValueKind::FunctionCall {
                             callee: Rc::new(DesugarValue {
-                                span: Span {
-                                    start: lhs.span.start.clone(),
-                                    end: operator.span.end.clone(),
-                                },
-                                kind: DesugarValueKind::FunctionCall {
-                                    callee: Rc::new(DesugarValue {
-                                        span: operator.span.clone(),
-                                        kind: DesugarValueKind::Variable {
-                                            name: operator.kind.clone(),
-                                        },
-                                    }),
-                                    arg: Rc::new(self.desugar_expression(lhs.clone())?),
+                                span: operator.span.clone(),
+                                kind: DesugarValueKind::Variable {
+                                    name: operator.kind.clone(),
                                 },
                             }),
                             arg: Rc::new(self.desugar_expression(rhs.clone())?),
                         },
                     }),
-                    InfinixCombineRule::Right => Ok(DesugarValue {
-                        span: expr.span.clone(),
-                        kind: DesugarValueKind::FunctionCall {
-                            callee: Rc::new(DesugarValue {
-                                span: Span {
-                                    start: operator.span.start.clone(),
-                                    end: rhs.span.end.clone(),
-                                },
-                                kind: DesugarValueKind::FunctionCall {
-                                    callee: Rc::new(DesugarValue {
-                                        span: operator.span.clone(),
-                                        kind: DesugarValueKind::Variable {
-                                            name: operator.kind.clone(),
-                                        },
-                                    }),
-                                    arg: Rc::new(self.desugar_expression(rhs.clone())?),
-                                },
-                            }),
-                            arg: Rc::new(self.desugar_expression(lhs.clone())?),
-                        },
-                    }),
-                }
-            }
+                    arg: Rc::new(self.desugar_expression(lhs.clone())?),
+                },
+            }),
             ExpressionKind::String(value) => Ok(DesugarValue {
                 span: expr.span.clone(),
                 kind: DesugarValueKind::String(value.clone()),
@@ -195,14 +162,10 @@ impl Desugarer {
                 })
             }
             StatementKind::Infix {
-                combine_rule,
                 operator,
                 params,
                 body,
             } => {
-                self.infix_pool
-                    .insert(operator.kind.clone(), combine_rule.clone());
-
                 let mut value = self.desugar_expression(body.clone())?;
 
                 for param in params.iter().rev() {

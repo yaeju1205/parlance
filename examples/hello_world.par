@@ -4,7 +4,6 @@ pair a b f = f a b
 first p = p (\x y -> x)
 second p = p (\x y -> y)
 
-infix right + a b = add a b
-infix left $ a b = a b
+infix + a b = add a b
 
-main = print $ ((first (pair 5 6)) + 5)
+main = print ((first (pair 5 6)) + 5)

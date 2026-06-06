@@ -44,12 +44,6 @@ pub struct Expression {
     pub kind: ExpressionKind,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum InfinixCombineRule {
-    Left,
-    Right,
-}
-
 #[derive(Debug)]
 pub enum StatementKind {
     Variable {
@@ -62,7 +56,6 @@ pub enum StatementKind {
         body: Rc<Expression>,
     },
     Infix {
-        combine_rule: InfinixCombineRule,
         operator: Node<Rc<str>>,
         params: Vec<Node<Rc<str>>>,
         body: Rc<Expression>,
@@ -384,37 +377,6 @@ impl<'a> Parser<'a> {
                 }
             }
             TokenKind::Infix => {
-                let Some(comb_token) = self.next_token() else {
-                    return Err(Diagnostics::parser_error(
-                        "expected 'left' or 'right', found EOF".to_string(),
-                        Span {
-                            start: token.span.start.clone(),
-                            end: self.source.len(),
-                        },
-                    ));
-                };
-                let combine_rule = match &comb_token.kind {
-                    TokenKind::Identifier(rule) => match rule.as_ref() {
-                        "left" => InfinixCombineRule::Left,
-                        "right" => InfinixCombineRule::Right,
-                        _ => {
-                            return Err(Diagnostics::parser_error(
-                                format!(
-                                    "expected 'left' or 'right', found '{:?}'",
-                                    &comb_token.kind
-                                ),
-                                comb_token.span.clone(),
-                            ));
-                        }
-                    },
-                    _ => {
-                        return Err(Diagnostics::parser_error(
-                            format!("expected 'left' or 'right', found {:?}", &comb_token.kind),
-                            comb_token.span.clone(),
-                        ));
-                    }
-                };
-
                 let Some(operator_token) = self.next_token() else {
                     return Err(Diagnostics::parser_error(
                         "expected Symbol, found EOF".to_string(),
@@ -448,7 +410,6 @@ impl<'a> Parser<'a> {
                         end: body.span.end.clone(),
                     },
                     kind: StatementKind::Infix {
-                        combine_rule,
                         operator,
                         params,
                         body: Rc::new(body),
