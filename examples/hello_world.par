@@ -7,6 +7,8 @@ second p = p (\x y -> y)
 
 infix 2 + a b = add a b
 infix 3 * a b = mul a b
-infix 1 left $ a b = a b
+infix 1 right $ a b = a b
 
-main = print $ (first (pair 5 6)) + 5 * 3
+a b c = b + 3
+d e = e + 4
+main = print $ d $ a 4 5

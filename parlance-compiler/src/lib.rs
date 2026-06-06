@@ -148,8 +148,8 @@ impl Compiler {
                 } else {
                     let (callee_reg, callee_bc) = self.compile_value(*callee)?;
 
-                    bytecode.extend(callee_bc);
                     bytecode.extend(arg_bc);
+                    bytecode.extend(callee_bc);
 
                     bytecode.push(Instruction {
                         operator: Operator::CallReg,
