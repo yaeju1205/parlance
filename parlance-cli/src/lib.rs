@@ -89,7 +89,7 @@ pub fn run() {
         Commands::Check { file } => {
             let source = read_source(&file);
             match compile_source(&source, cli.verbose) {
-                Ok(_) => eprintln!("!) check passed"),
+                Ok(_) => println!("!) check passed"),
                 Err(diagnostic) => {
                     eprintln!("{}", diagnostic.to_string());
                     process::exit(1);
