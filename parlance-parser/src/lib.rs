@@ -1,6 +1,6 @@
 mod tokenizer;
 
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{collections::HashMap, rc::Rc};
 
 use parlance_diagnostics::{Diagnostics, Span};
 
@@ -81,7 +81,7 @@ pub struct Parser<'a> {
     source: &'a str,
     tokens: Vec<Rc<Token>>,
     token_index: usize,
-    infix_table: RefCell<HashMap<Rc<str>, (u8, Associativity)>>,
+    infix_table: HashMap<Rc<str>, (u8, Associativity)>,
 }
 
 impl<'a> Parser<'a> {
@@ -194,7 +194,7 @@ impl<'a> Parser<'a> {
             source,
             tokens: tokenize(source)?.into_iter().map(Rc::new).collect(),
             token_index: 0,
-            infix_table: RefCell::new(HashMap::new()),
+            infix_table: HashMap::new(),
         })
     }
 
@@ -340,7 +340,7 @@ impl<'a> Parser<'a> {
 
             match kind {
                 TokenKind::Symbol(symbol) => {
-                    let (prec, assoc) = match self.infix_table.borrow().get(symbol.as_ref()) {
+                    let (prec, assoc) = match self.infix_table.get(symbol.as_ref()) {
                         Some(&info) => info,
                         None => {
                             return Err(Diagnostics::parser_error(
@@ -489,7 +489,6 @@ impl<'a> Parser<'a> {
                 };
 
                 self.infix_table
-                    .borrow_mut()
                     .insert(operator.kind.clone(), (precedence, associativity));
 
                 let params = self.parse_params()?;
