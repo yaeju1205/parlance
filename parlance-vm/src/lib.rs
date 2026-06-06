@@ -1,3 +1,4 @@
+#[repr(u8)]
 #[derive(Debug)]
 pub enum Operator {
     Goto,
@@ -9,6 +10,9 @@ pub enum Operator {
     LoadInt,
     LoadStr,
     AddInt,
+    SubInt,
+    MulInt,
+    DivInt,
     Print,
 }
 
@@ -151,6 +155,63 @@ impl VirtualMachine {
 
                         *self.register_file.get_unchecked_mut(inst.a) =
                             VirtualMachineData::Int(l_val + r_val);
+                    }
+                }
+                Operator::SubInt => {
+                    let lhs = unsafe { self.register_file.get_unchecked(inst.b) };
+                    let rhs = unsafe { self.register_file.get_unchecked(inst.c) };
+
+                    unsafe {
+                        let l_val = match lhs {
+                            VirtualMachineData::Int(v) => v.clone(),
+                            _ => std::hint::unreachable_unchecked(),
+                        };
+
+                        let r_val = match rhs {
+                            VirtualMachineData::Int(v) => v.clone(),
+                            _ => std::hint::unreachable_unchecked(),
+                        };
+
+                        *self.register_file.get_unchecked_mut(inst.a) =
+                            VirtualMachineData::Int(l_val - r_val);
+                    }
+                }
+                Operator::MulInt => {
+                    let lhs = unsafe { self.register_file.get_unchecked(inst.b) };
+                    let rhs = unsafe { self.register_file.get_unchecked(inst.c) };
+
+                    unsafe {
+                        let l_val = match lhs {
+                            VirtualMachineData::Int(v) => v.clone(),
+                            _ => std::hint::unreachable_unchecked(),
+                        };
+
+                        let r_val = match rhs {
+                            VirtualMachineData::Int(v) => v.clone(),
+                            _ => std::hint::unreachable_unchecked(),
+                        };
+
+                        *self.register_file.get_unchecked_mut(inst.a) =
+                            VirtualMachineData::Int(l_val * r_val);
+                    }
+                }
+                Operator::DivInt => {
+                    let lhs = unsafe { self.register_file.get_unchecked(inst.b) };
+                    let rhs = unsafe { self.register_file.get_unchecked(inst.c) };
+
+                    unsafe {
+                        let l_val = match lhs {
+                            VirtualMachineData::Int(v) => v.clone(),
+                            _ => std::hint::unreachable_unchecked(),
+                        };
+
+                        let r_val = match rhs {
+                            VirtualMachineData::Int(v) => v.clone(),
+                            _ => std::hint::unreachable_unchecked(),
+                        };
+
+                        *self.register_file.get_unchecked_mut(inst.a) =
+                            VirtualMachineData::Int(l_val / r_val);
                     }
                 }
                 Operator::Print => unsafe {

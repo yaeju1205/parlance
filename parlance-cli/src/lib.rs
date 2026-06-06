@@ -4,8 +4,11 @@ use clap::Parser;
 use parlance_compiler::Compiler;
 use parlance_diagnostics::Diagnostics;
 use parlance_parser::Parser as ParlanceParser;
-use parlance_prelude::{io::print, math::add};
-use parlance_vm::VirtualMachine;
+use parlance_prelude::{
+    io::print,
+    math::{add, div, mul, sub},
+};
+use parlance_vm::{Instruction, VirtualMachine};
 
 #[derive(Parser)]
 #[command(name = "parlance")]
@@ -26,26 +29,33 @@ enum Commands {
 
 fn compile_source(source: &str, verbose: bool) -> Result<VirtualMachine, Diagnostics> {
     if verbose {
-        eprintln!("!) parsing start");
+        println!("!) parsing start");
     }
 
     let mut parser = ParlanceParser::new(source)?;
     let stats = parser.parse()?;
 
     if verbose {
-        eprintln!("!) parsing complete");
+        println!("!) parsing complete");
     }
 
-    let compiler = Compiler::new(stats, vec![print(), add()])?;
+    let compiler = Compiler::new(stats, vec![print(), add(), sub(), mul(), div()])?;
 
     if verbose {
-        eprintln!("!) compile complete");
+        println!("!) compile complete");
     }
 
     let (pc, bytecode, data_pool) = compiler.compile("main")?;
 
     if verbose {
-        eprintln!("!) start pc {pc}");
+        println!("!) start pc {pc}");
+        println!("!) bytecode length {}", bytecode.len());
+        println!("!) instruction memory {} bytes", size_of::<Instruction>());
+        println!("!) bytecode capacity {}", bytecode.capacity());
+        println!(
+            "!) bytecode memory {} bytes",
+            bytecode.capacity() * size_of::<Instruction>()
+        );
     }
 
     let mut vm = VirtualMachine::new();

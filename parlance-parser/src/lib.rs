@@ -488,10 +488,9 @@ impl<'a> Parser<'a> {
                     }
                 };
 
-                self.infix_table.borrow_mut().insert(
-                    operator.kind.clone(),
-                    (precedence, associativity),
-                );
+                self.infix_table
+                    .borrow_mut()
+                    .insert(operator.kind.clone(), (precedence, associativity));
 
                 let params = self.parse_params()?;
                 self.expect_token(TokenKind::Equal)?;

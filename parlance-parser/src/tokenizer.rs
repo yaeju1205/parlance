@@ -14,6 +14,8 @@ pub enum TokenKind {
     Let,
     In,
     Infix,
+    Import,
+    Public,
     NewLine,
     String(Rc<str>),
     Int(i32),
@@ -69,6 +71,8 @@ pub fn tokenize<'a>(source: &'a str) -> Result<Vec<Token>, Diagnostics> {
                 "let" => TokenKind::Let,
                 "in" => TokenKind::In,
                 "infix" => TokenKind::Infix,
+                "import" => TokenKind::Import,
+                "public" => TokenKind::Public,
                 _ => TokenKind::Identifier(Rc::from(literal)),
             };
 
