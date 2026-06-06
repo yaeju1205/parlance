@@ -1,10 +1,16 @@
 mod tokenizer;
 
-use std::rc::Rc;
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use parlance_diagnostics::{Diagnostics, Span};
 
 use crate::tokenizer::{Token, TokenKind, tokenize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Associativity {
+    Left,
+    Right,
+}
 
 #[derive(Debug)]
 pub struct Node<T> {
@@ -57,6 +63,8 @@ pub enum StatementKind {
     },
     Infix {
         operator: Node<Rc<str>>,
+        precedence: u8,
+        associativity: Associativity,
         params: Vec<Node<Rc<str>>>,
         body: Rc<Expression>,
     },
@@ -73,6 +81,7 @@ pub struct Parser<'a> {
     source: &'a str,
     tokens: Vec<Rc<Token>>,
     token_index: usize,
+    infix_table: RefCell<HashMap<Rc<str>, (u8, Associativity)>>,
 }
 
 impl<'a> Parser<'a> {
@@ -185,6 +194,7 @@ impl<'a> Parser<'a> {
             source,
             tokens: tokenize(source)?.into_iter().map(Rc::new).collect(),
             token_index: 0,
+            infix_table: RefCell::new(HashMap::new()),
         })
     }
 
@@ -234,7 +244,7 @@ impl<'a> Parser<'a> {
             TokenKind::Lambda => {
                 let params = self.parse_params()?;
                 self.expect_token(TokenKind::Arrow)?;
-                let body = self.parse_expression()?;
+                let body = self.parse_expression(0)?;
                 Ok(Expression {
                     span: Span {
                         start: token.span.start.clone(),
@@ -247,7 +257,7 @@ impl<'a> Parser<'a> {
                 })
             }
             TokenKind::LeftParen => {
-                let inner = self.parse_expression()?;
+                let inner = self.parse_expression(0)?;
                 self.expect_token(TokenKind::RightParen)?;
                 Ok(inner)
             }
@@ -267,7 +277,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse_expression(&mut self) -> Result<Expression, Diagnostics> {
+    pub fn parse_application(&mut self) -> Result<Expression, Diagnostics> {
         let mut expr = self.parse_primary_expression()?;
         loop {
             let Some(token) = self.peek_token() else {
@@ -281,24 +291,6 @@ impl<'a> Parser<'a> {
             }
 
             match kind {
-                TokenKind::Symbol(symbol) => {
-                    self.next_token();
-                    let rhs = self.parse_primary_expression()?;
-                    expr = Expression {
-                        span: Span {
-                            start: expr.span.start,
-                            end: rhs.span.end,
-                        },
-                        kind: ExpressionKind::InfixCall {
-                            operator: Node {
-                                kind: symbol.clone(),
-                                span: token.span.clone(),
-                            },
-                            lhs: Rc::new(expr),
-                            rhs: Rc::new(rhs),
-                        },
-                    };
-                }
                 TokenKind::Identifier(_) | TokenKind::String(_) | TokenKind::Int(_) => {
                     let arg = self.parse_primary_expression()?;
                     expr = Expression {
@@ -314,7 +306,7 @@ impl<'a> Parser<'a> {
                 }
                 TokenKind::LeftParen => {
                     self.next_token();
-                    let inner = self.parse_expression()?;
+                    let inner = self.parse_expression(0)?;
                     let right_paren = self.expect_token(TokenKind::RightParen)?;
                     expr = Expression {
                         span: Span {
@@ -327,9 +319,66 @@ impl<'a> Parser<'a> {
                         },
                     }
                 }
-                _ => break Ok(expr),
+                _ => break,
             }
         }
+        Ok(expr)
+    }
+
+    pub fn parse_expression(&mut self, min_prec: u8) -> Result<Expression, Diagnostics> {
+        let mut lhs = self.parse_application()?;
+        loop {
+            let Some(token) = self.peek_token() else {
+                return Ok(lhs);
+            };
+
+            let kind = &token.kind;
+
+            if matches!(kind, TokenKind::NewLine) {
+                return Ok(lhs);
+            }
+
+            match kind {
+                TokenKind::Symbol(symbol) => {
+                    let (prec, assoc) = match self.infix_table.borrow().get(symbol.as_ref()) {
+                        Some(&info) => info,
+                        None => {
+                            return Err(Diagnostics::parser_error(
+                                format!("undefined infix operator '{}'", symbol),
+                                token.span.clone(),
+                            ));
+                        }
+                    };
+
+                    if prec < min_prec {
+                        break;
+                    }
+
+                    self.next_token();
+                    let next_min_prec = match assoc {
+                        Associativity::Left => prec + 1,
+                        Associativity::Right => prec,
+                    };
+                    let rhs = self.parse_expression(next_min_prec)?;
+                    lhs = Expression {
+                        span: Span {
+                            start: lhs.span.start,
+                            end: rhs.span.end,
+                        },
+                        kind: ExpressionKind::InfixCall {
+                            operator: Node {
+                                kind: symbol.clone(),
+                                span: token.span.clone(),
+                            },
+                            lhs: Rc::new(lhs),
+                            rhs: Rc::new(rhs),
+                        },
+                    };
+                }
+                _ => break,
+            }
+        }
+        Ok(lhs)
     }
 
     pub fn parse_statement(&mut self) -> Result<Statement, Diagnostics> {
@@ -348,7 +397,7 @@ impl<'a> Parser<'a> {
                 let params = self.parse_params()?;
                 self.expect_token(TokenKind::Equal)?;
                 let scheme = self.parse_scheme()?;
-                let value = self.parse_expression()?;
+                let value = self.parse_expression(0)?;
                 if params.is_empty() {
                     Ok(Statement {
                         span: Span {
@@ -377,6 +426,46 @@ impl<'a> Parser<'a> {
                 }
             }
             TokenKind::Infix => {
+                let precedence_token = self.next_token();
+                let precedence = match &precedence_token {
+                    Some(t) => match &t.kind {
+                        TokenKind::Int(n) => *n as u8,
+                        _ => {
+                            return Err(Diagnostics::parser_error(
+                                format!("expected precedence (integer), found {:?}", &t.kind),
+                                t.span.clone(),
+                            ));
+                        }
+                    },
+                    None => {
+                        return Err(Diagnostics::parser_error(
+                            "expected precedence, found EOF".to_string(),
+                            Span {
+                                start: token.span.start.clone(),
+                                end: self.source.len(),
+                            },
+                        ));
+                    }
+                };
+
+                let mut associativity = Associativity::Left;
+
+                if let Some(next) = self.peek_token() {
+                    if let TokenKind::Identifier(word) = &next.kind {
+                        match word.as_ref() {
+                            "left" => {
+                                self.next_token();
+                                associativity = Associativity::Left;
+                            }
+                            "right" => {
+                                self.next_token();
+                                associativity = Associativity::Right;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+
                 let Some(operator_token) = self.next_token() else {
                     return Err(Diagnostics::parser_error(
                         "expected Symbol, found EOF".to_string(),
@@ -399,10 +488,15 @@ impl<'a> Parser<'a> {
                     }
                 };
 
+                self.infix_table.borrow_mut().insert(
+                    operator.kind.clone(),
+                    (precedence, associativity),
+                );
+
                 let params = self.parse_params()?;
                 self.expect_token(TokenKind::Equal)?;
                 let scheme = self.parse_scheme()?;
-                let body = self.parse_expression()?;
+                let body = self.parse_expression(0)?;
 
                 Ok(Statement {
                     span: Span {
@@ -411,6 +505,8 @@ impl<'a> Parser<'a> {
                     },
                     kind: StatementKind::Infix {
                         operator,
+                        precedence,
+                        associativity,
                         params,
                         body: Rc::new(body),
                     },

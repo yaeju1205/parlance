@@ -1,6 +1,6 @@
-add a b = let
-    result = a + b
-in
-    result
+print = prelude::io::print
+add = prelude::math::add
 
-main = print (add 1 2)
+infix 1 + a b = add a b
+
+main = print (1 + 2)

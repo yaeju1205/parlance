@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Rc};
+use std::rc::Rc;
 
 use parlance_diagnostics::{Diagnostics, Span};
 use parlance_parser::{Expression, ExpressionKind, Statement, StatementKind};
@@ -96,7 +96,7 @@ impl Desugarer {
                     callee: Rc::new(DesugarValue {
                         span: Span {
                             start: operator.span.start.clone(),
-                            end: rhs.span.end.clone(),
+                            end: lhs.span.end.clone(),
                         },
                         kind: DesugarValueKind::FunctionCall {
                             callee: Rc::new(DesugarValue {
@@ -105,10 +105,10 @@ impl Desugarer {
                                     name: operator.kind.clone(),
                                 },
                             }),
-                            arg: Rc::new(self.desugar_expression(rhs.clone())?),
+                            arg: Rc::new(self.desugar_expression(lhs.clone())?),
                         },
                     }),
-                    arg: Rc::new(self.desugar_expression(lhs.clone())?),
+                    arg: Rc::new(self.desugar_expression(rhs.clone())?),
                 },
             }),
             ExpressionKind::String(value) => Ok(DesugarValue {
@@ -165,6 +165,7 @@ impl Desugarer {
                 operator,
                 params,
                 body,
+                ..
             } => {
                 let mut value = self.desugar_expression(body.clone())?;
 
