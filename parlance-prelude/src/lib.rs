@@ -1,28 +1,28 @@
 use std::rc::Rc;
 
-use parlance_compiler::{Compiler, Function};
+use parlance_compiler::{CompileObject, Function};
 use parlance_vm::{Bytecode, Instruction, Operator};
 
 pub(self) struct FnBuilder<'a> {
     bytecode: Bytecode,
-    compiler: &'a mut Compiler,
+    compile_object: &'a mut CompileObject,
     param_register: usize,
     function: Rc<Function>,
 }
 
 impl<'a> FnBuilder<'a> {
-    pub fn new(compiler: &'a mut Compiler, func: Rc<Function>) -> Self {
+    pub fn new(compile_object: &'a mut CompileObject, func: Rc<Function>) -> Self {
         Self {
             bytecode: Vec::new(),
-            compiler,
+            compile_object,
             param_register: func.param_register,
             function: func,
         }
     }
 
     pub fn alloc_param(&mut self) -> usize {
-        let param_reg = self.compiler.register_allocator.alloc();
-        let inner_func_reg = self.compiler.register_allocator.alloc();
+        let param_reg = self.alloc();
+        let inner_func_reg = self.alloc();
 
         let inner_func_pc = self.function.pc + self.bytecode.len() + 2;
 
@@ -44,7 +44,7 @@ impl<'a> FnBuilder<'a> {
     }
 
     pub fn alloc(&mut self) -> usize {
-        self.compiler.register_allocator.alloc()
+        self.compile_object.allocator.alloc()
     }
 
     pub fn emit(&mut self, inst: Instruction) {

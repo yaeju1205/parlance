@@ -6,8 +6,8 @@ use crate::FnBuilder;
 pub fn print() -> BytecodeFunction {
     BytecodeFunction {
         name: "prelude::io::print".to_string(),
-        build_bytecode: |compiler, func| {
-            let mut builder = FnBuilder::new(compiler, func);
+        build: |compile_object, func| {
+            let mut builder = FnBuilder::new(compile_object, func);
 
             builder.emit(Instruction {
                 operator: Operator::Print,

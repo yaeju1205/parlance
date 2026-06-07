@@ -2,13 +2,8 @@ use std::{fs, process};
 
 use clap::Parser;
 use parlance_compiler::Compiler;
-use parlance_diagnostics::Diagnostics;
-use parlance_parser::Parser as ParlanceParser;
-use parlance_prelude::{
-    io::print,
-    math::{add, div, mul, sub},
-};
-use parlance_vm::{Instruction, VirtualMachine};
+use parlance_prelude::io::print;
+use parlance_vm::VirtualMachine;
 
 #[derive(Parser)]
 #[command(name = "parlance")]
@@ -24,44 +19,6 @@ struct Cli {
 #[derive(clap::Subcommand)]
 enum Commands {
     Run { file: String },
-    Check { file: String },
-}
-
-fn compile_source(source: &str, verbose: bool) -> Result<VirtualMachine, Diagnostics> {
-    if verbose {
-        println!("!) parsing start");
-    }
-
-    let mut parser = ParlanceParser::new(source)?;
-    let parse_info = parser.parse()?;
-
-    if verbose {
-        println!("!) parsing complete");
-    }
-
-    let compiler = Compiler::new(parse_info, vec![print(), add(), sub(), mul(), div()])?;
-
-    if verbose {
-        println!("!) compile complete");
-    }
-
-    let (pc, bytecode, data_pool) = compiler.compile("main")?;
-
-    if verbose {
-        println!("!) start pc {pc}");
-        println!("!) bytecode length {}", bytecode.len());
-        println!("!) instruction memory {} bytes", size_of::<Instruction>());
-        println!("!) bytecode capacity {}", bytecode.capacity());
-        println!(
-            "!) bytecode memory {} bytes",
-            bytecode.capacity() * size_of::<Instruction>()
-        );
-    }
-
-    let mut vm = VirtualMachine::new();
-    vm.load(pc, bytecode, data_pool);
-
-    Ok(vm)
 }
 
 fn read_source(file: &str) -> String {
@@ -77,23 +34,26 @@ pub fn run() {
     match cli.command {
         Commands::Run { file } => {
             let source = read_source(&file);
-            let mut vm = compile_source(&source, cli.verbose).unwrap_or_else(|diagnostic| {
-                eprintln!("{}", diagnostic.to_string());
-                process::exit(1);
-            });
+            let mut compiler = Compiler::new();
+            compiler.insert_bytecode_function(print());
+
+            let build_info = compiler
+                .compile_source(&source)
+                .unwrap_or_else(|diagnostic| {
+                    eprintln!("{}", diagnostic.to_string());
+                    process::exit(1);
+                })
+                .build_binding("main")
+                .unwrap_or_else(|diagnostic| {
+                    eprintln!("{}", diagnostic.to_string());
+                    process::exit(1);
+                });
+
+            let mut vm = VirtualMachine::new();
+            vm.load(build_info);
 
             unsafe {
                 vm.run();
-            }
-        }
-        Commands::Check { file } => {
-            let source = read_source(&file);
-            match compile_source(&source, cli.verbose) {
-                Ok(_) => println!("!) check passed"),
-                Err(diagnostic) => {
-                    eprintln!("{}", diagnostic.to_string());
-                    process::exit(1);
-                }
             }
         }
     }

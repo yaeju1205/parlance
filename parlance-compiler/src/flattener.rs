@@ -44,15 +44,12 @@ impl Flattener {
         Self::default()
     }
 
-    pub fn with_bindings(mut self, bindings: Vec<(Rc<str>, FlattenValue)>) -> Self {
-        for (binding_name, binding_value) in bindings.into_iter() {
-            let value_idx = self.alloc(binding_value);
-            self.binding_pool.insert(binding_name, value_idx);
-        }
-        self
+    pub fn insert_binding(&mut self, (name, value): (Rc<str>, FlattenValue)) {
+        let value_idx = self.alloc(value);
+        self.binding_pool.insert(name, value_idx);
     }
 
-    fn alloc(&mut self, value: FlattenValue) -> FlattenIndex {
+    pub fn alloc(&mut self, value: FlattenValue) -> FlattenIndex {
         let idx = self.flatten_file.len();
         self.flatten_file.push(Rc::new(value));
         idx

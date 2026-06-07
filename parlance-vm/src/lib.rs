@@ -60,7 +60,7 @@ impl VirtualMachine {
         }
     }
 
-    pub fn load(&mut self, pc: usize, bytecode: Bytecode, data_pool: DataPool) {
+    pub fn load(&mut self, (pc, bytecode, data_pool): (usize, Bytecode, DataPool)) {
         self.pc = pc;
         self.bytecode = bytecode;
         self.data_pool = data_pool;
