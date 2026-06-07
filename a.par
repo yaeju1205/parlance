@@ -1,0 +1,3 @@
+infix 1 $ a b = a b
+
+main = prelude::io::print $ "Hello, World!"

@@ -14,7 +14,7 @@ mod flattener;
 
 #[derive(Debug, Default)]
 pub struct Allocator {
-    pub register: usize,
+    pub register: u32,
 }
 
 impl Allocator {
@@ -22,7 +22,7 @@ impl Allocator {
         Self::default()
     }
 
-    pub fn alloc(&mut self) -> usize {
+    pub fn alloc(&mut self) -> u32 {
         let reg = self.register;
         self.register += 1;
         reg
@@ -31,8 +31,8 @@ impl Allocator {
 
 #[derive(Debug)]
 pub struct Function {
-    pub param_register: usize,
-    pub pc: usize,
+    pub param_register: u32,
+    pub pc: u32,
 }
 
 pub struct BytecodeFunction {
@@ -46,8 +46,8 @@ pub struct CompileObject {
     pub allocator: Allocator,
     pub function_map: HashMap<FlattenIndex, Rc<Function>>,
     pub function_bytecode: Bytecode,
-    pub binding_map: HashMap<FlattenIndex, usize>,
-    pub string_cache: HashMap<String, usize>,
+    pub binding_map: HashMap<FlattenIndex, u32>,
+    pub string_cache: HashMap<String, u32>,
     pub data_pool: DataPool,
 }
 
@@ -79,7 +79,7 @@ impl CompileObject {
         &mut self,
         value_idx: FlattenIndex,
         is_tail: bool,
-    ) -> Result<(usize, Bytecode), Diagnostics> {
+    ) -> Result<(u32, Bytecode), Diagnostics> {
         let Some(value) = self.flatten.file.get(value_idx) else {
             return Err(Diagnostics::compiler_error(
                 format!("not found value {value_idx}"),
@@ -173,7 +173,7 @@ impl CompileObject {
 
                 let (body_register, body_bytecode) = self.build_value_inner(*body, true)?;
 
-                let func_pc = self.function_bytecode.len();
+                let func_pc = self.function_bytecode.len() as u32;
                 let func = Rc::new(Function {
                     param_register,
                     pc: func_pc,
@@ -203,7 +203,7 @@ impl CompileObject {
                 bytecode.push(Instruction {
                     operator: Operator::LoadInt,
                     a: dest,
-                    b: int_value.clone() as u32 as usize,
+                    b: int_value.clone() as u32,
                     c: 0,
                 });
                 self.binding_map.insert(value_idx, dest);
@@ -213,7 +213,7 @@ impl CompileObject {
                 let pool_idx = if let Some(idx) = self.string_cache.get(str_value) {
                     *idx
                 } else {
-                    let idx = self.data_pool.len();
+                    let idx = self.data_pool.len() as u32;
                     self.data_pool
                         .push(VirtualMachineData::StrPtr(str_value.as_str()));
                     self.string_cache.insert(str_value.clone(), idx);
@@ -256,21 +256,18 @@ impl CompileObject {
         }
     }
 
-    pub fn build_value(
-        &mut self,
-        value_idx: FlattenIndex,
-    ) -> Result<(usize, Bytecode), Diagnostics> {
+    pub fn build_value(&mut self, value_idx: FlattenIndex) -> Result<(u32, Bytecode), Diagnostics> {
         self.build_value_inner(value_idx, false)
     }
 
     pub fn build_binding(
         mut self,
         binding_name: &str,
-    ) -> Result<(usize, Bytecode, DataPool), Diagnostics> {
+    ) -> Result<(u32, Bytecode, DataPool), Diagnostics> {
         if let Some(value_idx) = self.flatten.clone().bindings.get(binding_name) {
             let (_, mut main_bytecode) = self.build_value(*value_idx)?;
             let mut func_bytecode = self.function_bytecode;
-            let pc = func_bytecode.len();
+            let pc = func_bytecode.len() as u32;
 
             let mut bytecode: Bytecode = Vec::new();
             bytecode.append(&mut func_bytecode);
@@ -323,7 +320,7 @@ impl Compiler {
             {
                 let func = Rc::new(Function {
                     param_register: compile_object.allocator.alloc(),
-                    pc: compile_object.function_bytecode.len(),
+                    pc: compile_object.function_bytecode.len() as u32,
                 });
                 let mut bytecode = (bytecode_func.build)(&mut compile_object, func.clone());
                 compile_object.function_bytecode.append(&mut bytecode);
@@ -391,7 +388,7 @@ impl Compiler {
             if let Some(&flatten_idx) = flatten.bindings.get(bytecode_func.name.as_str()) {
                 let func = Rc::new(Function {
                     param_register: compile_object.allocator.alloc(),
-                    pc: compile_object.function_bytecode.len(),
+                    pc: compile_object.function_bytecode.len() as u32,
                 });
                 let mut bytecode = (bytecode_func.build)(&mut compile_object, func.clone());
                 compile_object.function_bytecode.append(&mut bytecode);

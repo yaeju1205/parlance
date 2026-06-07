@@ -6,7 +6,7 @@ use parlance_vm::{Bytecode, Instruction, Operator};
 pub(self) struct FnBuilder<'a> {
     bytecode: Bytecode,
     compile_object: &'a mut CompileObject,
-    param_register: usize,
+    param_register: u32,
     function: Rc<Function>,
 }
 
@@ -20,11 +20,11 @@ impl<'a> FnBuilder<'a> {
         }
     }
 
-    pub fn alloc_param(&mut self) -> usize {
+    pub fn alloc_param(&mut self) -> u32 {
         let param_reg = self.alloc();
         let inner_func_reg = self.alloc();
 
-        let inner_func_pc = self.function.pc + self.bytecode.len() + 2;
+        let inner_func_pc = self.function.pc + self.bytecode.len() as u32 + 2;
 
         self.bytecode.push(Instruction {
             operator: Operator::LoadFunc,
@@ -43,7 +43,7 @@ impl<'a> FnBuilder<'a> {
         param_reg
     }
 
-    pub fn alloc(&mut self) -> usize {
+    pub fn alloc(&mut self) -> u32 {
         self.compile_object.allocator.alloc()
     }
 

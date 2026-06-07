@@ -20,9 +20,9 @@ pub enum Operator {
 #[derive(Debug)]
 pub struct Instruction {
     pub operator: Operator,
-    pub a: usize,
-    pub b: usize,
-    pub c: usize,
+    pub a: u32,
+    pub b: u32,
+    pub c: u32,
 }
 
 pub type Bytecode = Vec<Instruction>;
@@ -32,19 +32,19 @@ pub type DataPool = Vec<VirtualMachineData>;
 pub enum VirtualMachineData {
     Int(i32),
     StrPtr(*const str),
-    FuncPtr { pc: usize, param_register: usize },
+    FuncPtr { pc: u32, param_register: u32 },
     None,
 }
 
 struct FrameInfo {
-    return_pc: usize,
-    dest_register: usize,
+    return_pc: u32,
+    dest_register: u32,
 }
 
 pub struct VirtualMachine {
     bytecode: Bytecode,
     data_pool: DataPool,
-    pc: usize,
+    pc: u32,
     register_file: Vec<VirtualMachineData>,
     call_stack: Vec<FrameInfo>,
 }
@@ -60,13 +60,13 @@ impl VirtualMachine {
         }
     }
 
-    pub fn load(&mut self, (pc, bytecode, data_pool): (usize, Bytecode, DataPool)) {
+    pub fn load(&mut self, (pc, bytecode, data_pool): (u32, Bytecode, DataPool)) {
         self.pc = pc;
         self.bytecode = bytecode;
         self.data_pool = data_pool;
     }
 
-    pub fn with_load(mut self, (pc, bytecode, data_pool): (usize, Bytecode, DataPool)) -> Self {
+    pub fn with_load(mut self, (pc, bytecode, data_pool): (u32, Bytecode, DataPool)) -> Self {
         self.pc = pc;
         self.bytecode = bytecode;
         self.data_pool = data_pool;
@@ -79,21 +79,21 @@ impl VirtualMachine {
 
         let code_len = self.bytecode.len();
 
-        while pc < code_len {
-            let inst = unsafe { self.bytecode.get_unchecked(pc) };
+        while (pc as usize) < code_len {
+            let inst = unsafe { self.bytecode.get_unchecked(pc as usize) };
             match inst.operator {
                 Operator::Goto => pc = inst.a,
                 Operator::Mov => unsafe {
-                    *self.register_file.get_unchecked_mut(inst.a) =
-                        self.register_file.get_unchecked(inst.b).clone();
+                    *self.register_file.get_unchecked_mut(inst.a as usize) =
+                        self.register_file.get_unchecked(inst.b as usize).clone();
                 },
                 Operator::Ret => {
-                    let ret = unsafe { self.register_file.get_unchecked(inst.a).clone() };
+                    let ret = unsafe { self.register_file.get_unchecked(inst.a as usize).clone() };
 
                     let frame = unsafe { self.call_stack.pop().unwrap_unchecked() };
 
                     unsafe {
-                        *self.register_file.get_unchecked_mut(frame.dest_register) = ret;
+                        *self.register_file.get_unchecked_mut(frame.dest_register as usize) = ret;
                     }
 
                     pc = frame.return_pc;
@@ -117,13 +117,13 @@ impl VirtualMachine {
                     });
 
                     unsafe {
-                        match self.register_file[inst.b] {
+                        match self.register_file[inst.b as usize] {
                             VirtualMachineData::FuncPtr {
                                 pc: target_pc,
                                 param_register,
                             } => {
-                                *self.register_file.get_unchecked_mut(param_register) =
-                                    self.register_file.get_unchecked(inst.c).clone();
+                                *self.register_file.get_unchecked_mut(param_register as usize) =
+                                    self.register_file.get_unchecked(inst.c as usize).clone();
                                 pc = target_pc;
                             }
                             _ => std::hint::unreachable_unchecked(),
@@ -134,13 +134,13 @@ impl VirtualMachine {
                 }
                 Operator::TailCallReg => {
                     unsafe {
-                        match self.register_file[inst.b] {
+                        match self.register_file[inst.b as usize] {
                             VirtualMachineData::FuncPtr {
                                 pc: target_pc,
                                 param_register,
                             } => {
-                                *self.register_file.get_unchecked_mut(param_register) =
-                                    self.register_file.get_unchecked(inst.c).clone();
+                                *self.register_file.get_unchecked_mut(param_register as usize) =
+                                    self.register_file.get_unchecked(inst.c as usize).clone();
 
                                 pc = target_pc;
                             }
@@ -150,22 +150,22 @@ impl VirtualMachine {
                     continue;
                 }
                 Operator::LoadFunc => unsafe {
-                    *self.register_file.get_unchecked_mut(inst.a) = VirtualMachineData::FuncPtr {
+                    *self.register_file.get_unchecked_mut(inst.a as usize) = VirtualMachineData::FuncPtr {
                         pc: inst.b,
                         param_register: inst.c,
                     };
                 },
                 Operator::LoadInt => unsafe {
-                    *self.register_file.get_unchecked_mut(inst.a) =
+                    *self.register_file.get_unchecked_mut(inst.a as usize) =
                         VirtualMachineData::Int(inst.b as i32);
                 },
                 Operator::LoadStr => unsafe {
-                    *self.register_file.get_unchecked_mut(inst.a) =
-                        self.data_pool.get_unchecked(inst.b).clone()
+                    *self.register_file.get_unchecked_mut(inst.a as usize) =
+                        self.data_pool.get_unchecked(inst.b as usize).clone()
                 },
                 Operator::AddInt => {
-                    let lhs = unsafe { self.register_file.get_unchecked(inst.b) };
-                    let rhs = unsafe { self.register_file.get_unchecked(inst.c) };
+                    let lhs = unsafe { self.register_file.get_unchecked(inst.b as usize) };
+                    let rhs = unsafe { self.register_file.get_unchecked(inst.c as usize) };
 
                     unsafe {
                         let l_val = match lhs {
@@ -178,13 +178,13 @@ impl VirtualMachine {
                             _ => std::hint::unreachable_unchecked(),
                         };
 
-                        *self.register_file.get_unchecked_mut(inst.a) =
+                        *self.register_file.get_unchecked_mut(inst.a as usize) =
                             VirtualMachineData::Int(l_val + r_val);
                     }
                 }
                 Operator::SubInt => {
-                    let lhs = unsafe { self.register_file.get_unchecked(inst.b) };
-                    let rhs = unsafe { self.register_file.get_unchecked(inst.c) };
+                    let lhs = unsafe { self.register_file.get_unchecked(inst.b as usize) };
+                    let rhs = unsafe { self.register_file.get_unchecked(inst.c as usize) };
 
                     unsafe {
                         let l_val = match lhs {
@@ -197,13 +197,13 @@ impl VirtualMachine {
                             _ => std::hint::unreachable_unchecked(),
                         };
 
-                        *self.register_file.get_unchecked_mut(inst.a) =
+                        *self.register_file.get_unchecked_mut(inst.a as usize) =
                             VirtualMachineData::Int(l_val - r_val);
                     }
                 }
                 Operator::MulInt => {
-                    let lhs = unsafe { self.register_file.get_unchecked(inst.b) };
-                    let rhs = unsafe { self.register_file.get_unchecked(inst.c) };
+                    let lhs = unsafe { self.register_file.get_unchecked(inst.b as usize) };
+                    let rhs = unsafe { self.register_file.get_unchecked(inst.c as usize) };
 
                     unsafe {
                         let l_val = match lhs {
@@ -216,13 +216,13 @@ impl VirtualMachine {
                             _ => std::hint::unreachable_unchecked(),
                         };
 
-                        *self.register_file.get_unchecked_mut(inst.a) =
+                        *self.register_file.get_unchecked_mut(inst.a as usize) =
                             VirtualMachineData::Int(l_val * r_val);
                     }
                 }
                 Operator::DivInt => {
-                    let lhs = unsafe { self.register_file.get_unchecked(inst.b) };
-                    let rhs = unsafe { self.register_file.get_unchecked(inst.c) };
+                    let lhs = unsafe { self.register_file.get_unchecked(inst.b as usize) };
+                    let rhs = unsafe { self.register_file.get_unchecked(inst.c as usize) };
 
                     unsafe {
                         let l_val = match lhs {
@@ -235,14 +235,14 @@ impl VirtualMachine {
                             _ => std::hint::unreachable_unchecked(),
                         };
 
-                        *self.register_file.get_unchecked_mut(inst.a) =
+                        *self.register_file.get_unchecked_mut(inst.a as usize) =
                             VirtualMachineData::Int(l_val / r_val);
                     }
                 }
                 Operator::Print => unsafe {
                     println!(
                         "parlance print > {:?}",
-                        self.register_file.get_unchecked_mut(inst.a)
+                        self.register_file.get_unchecked_mut(inst.a as usize)
                     );
                 },
             }
