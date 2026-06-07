@@ -6,7 +6,7 @@ use parlance_diagnostics::{Diagnostics, Span};
 
 use crate::tokenizer::{Token, TokenKind, tokenize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Associativity {
     Left,
     Right,
@@ -75,6 +75,18 @@ pub struct Statement {
     pub span: Span,
     pub kind: StatementKind,
     pub scheme: Vec<Statement>,
+    pub is_public: bool,
+}
+
+pub enum Import {
+    Prelude,
+    Std,
+    Path(Rc<str>),
+}
+
+pub struct ParseInfo {
+    pub imports: Vec<Import>,
+    pub statements: Vec<Statement>,
 }
 
 pub struct Parser<'a> {
@@ -382,7 +394,7 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_statement(&mut self) -> Result<Statement, Diagnostics> {
-        let Some(token) = self.next_token() else {
+        let Some(mut token) = self.next_token() else {
             return Err(Diagnostics::parser_error(
                 "expected statement, found EOF".to_string(),
                 Span {
@@ -390,6 +402,23 @@ impl<'a> Parser<'a> {
                     end: self.source.len(),
                 },
             ));
+        };
+
+        let is_public = if let TokenKind::Public = &token.kind {
+            token = if let Some(token) = self.next_token() {
+                token
+            } else {
+                return Err(Diagnostics::parser_error(
+                    "expected statement, found EOF".to_string(),
+                    Span {
+                        start: 0,
+                        end: self.source.len(),
+                    },
+                ));
+            };
+            true
+        } else {
+            false
         };
 
         match &token.kind {
@@ -409,6 +438,7 @@ impl<'a> Parser<'a> {
                             value: Rc::new(value),
                         },
                         scheme,
+                        is_public,
                     })
                 } else {
                     Ok(Statement {
@@ -422,6 +452,7 @@ impl<'a> Parser<'a> {
                             body: Rc::new(value),
                         },
                         scheme,
+                        is_public,
                     })
                 }
             }
@@ -509,6 +540,7 @@ impl<'a> Parser<'a> {
                         body: Rc::new(body),
                     },
                     scheme,
+                    is_public,
                 })
             }
             TokenKind::NewLine => self.parse_statement(),
@@ -519,17 +551,74 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse(&mut self) -> Result<Vec<Statement>, Diagnostics> {
-        let mut stats = Vec::new();
+    pub fn parse_imports(&mut self) -> Result<Vec<Import>, Diagnostics> {
+        let mut imports = Vec::new();
+        loop {
+            let token = if let Some(token) = self.peek_token() {
+                token
+            } else {
+                return Ok(imports);
+            };
+            let start = token.span.start;
+
+            if !matches!(&token.kind, TokenKind::Import) {
+                if let TokenKind::NewLine = &token.kind {
+                    self.next_token();
+                    continue;
+                }
+                return Ok(imports);
+            }
+
+            self.next_token();
+
+            let Some(route_token) = self.next_token() else {
+                return Err(Diagnostics::parser_error(
+                    "expected route, found EOF".to_string(),
+                    Span {
+                        start,
+                        end: self.source.len(),
+                    },
+                ));
+            };
+
+            match &route_token.kind {
+                TokenKind::Identifier(route) => match route.as_ref() {
+                    "prelude" => imports.push(Import::Prelude),
+                    "std" => imports.push(Import::Std),
+                    _ => {
+                        return Err(Diagnostics::parser_error(
+                            format!("expected route prelude or std, found '{}'", route.as_ref()),
+                            route_token.span.clone(),
+                        ));
+                    }
+                },
+                TokenKind::String(path) => imports.push(Import::Path(path.clone())),
+                _ => {
+                    return Err(Diagnostics::parser_error(
+                        format!("expected route, found {:?}", &route_token.kind),
+                        route_token.span.clone(),
+                    ));
+                }
+            }
+        }
+    }
+
+    pub fn parse(&mut self) -> Result<ParseInfo, Diagnostics> {
+        let imports = self.parse_imports()?;
+
+        let mut statements = Vec::new();
 
         while let Some(token) = self.peek_token() {
             if let TokenKind::NewLine = &token.kind {
                 self.next_token();
                 continue;
             }
-            stats.push(self.parse_statement()?);
+            statements.push(self.parse_statement()?);
         }
 
-        Ok(stats)
+        Ok(ParseInfo {
+            imports,
+            statements,
+        })
     }
 }

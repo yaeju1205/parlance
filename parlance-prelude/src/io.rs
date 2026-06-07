@@ -17,7 +17,7 @@ pub fn print() -> BytecodeFunction {
             });
             builder.emit(Instruction {
                 operator: Operator::Ret,
-                a: 0,
+                a: builder.param_register,
                 b: 0,
                 c: 0,
             });
