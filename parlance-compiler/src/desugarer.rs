@@ -3,13 +3,13 @@ use std::rc::Rc;
 use parlance_diagnostics::{Diagnostics, Span};
 use parlance_parser::{Expression, ExpressionKind, Statement, StatementKind};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Param {
     pub span: Span,
     pub name: Rc<str>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum DesugarValueKind {
     Variable {
         name: Rc<str>,
@@ -26,13 +26,13 @@ pub enum DesugarValueKind {
     Int(i32),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DesugarValue {
     pub span: Span,
     pub kind: DesugarValueKind,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DesugarBinding {
     pub name: Rc<str>,
     pub value: Rc<DesugarValue>,

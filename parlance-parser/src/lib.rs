@@ -79,8 +79,7 @@ pub struct Statement {
 }
 
 pub enum Import {
-    Prelude,
-    Std,
+    Namespace(Rc<str>),
     Path(Rc<str>),
 }
 
@@ -582,16 +581,9 @@ impl<'a> Parser<'a> {
             };
 
             match &route_token.kind {
-                TokenKind::Identifier(route) => match route.as_ref() {
-                    "prelude" => imports.push(Import::Prelude),
-                    "std" => imports.push(Import::Std),
-                    _ => {
-                        return Err(Diagnostics::parser_error(
-                            format!("expected route prelude or std, found '{}'", route.as_ref()),
-                            route_token.span.clone(),
-                        ));
-                    }
-                },
+                TokenKind::Identifier(namespace) => {
+                    imports.push(Import::Namespace(namespace.clone()))
+                }
                 TokenKind::String(path) => imports.push(Import::Path(path.clone())),
                 _ => {
                     return Err(Diagnostics::parser_error(
