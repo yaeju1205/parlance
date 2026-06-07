@@ -63,9 +63,7 @@ impl CompileObject {
             data_pool: Vec::new(),
         }
     }
-}
 
-impl CompileObject {
     pub fn link_object(&mut self, mut object: CompileObject) {
         self.function_map.extend(object.function_map.drain());
         self.binding_map.extend(object.binding_map.drain());
@@ -341,12 +339,12 @@ impl Compiler {
                 Import::Path(import_path) => {
                     let import_full_path = parent_dir.join(import_path.as_ref());
 
-                    let source = fs::read_to_string(&import_full_path).map_err(|_| {
-                        Diagnostics::compiler_error(
+                    let Ok(source) = fs::read_to_string(&import_full_path) else {
+                        return Err(Diagnostics::compiler_error(
                             format!("can not open file {}", import_path.as_ref()),
                             Span::default(),
-                        )
-                    })?;
+                        ));
+                    };
 
                     let parse_info = Parser::new(&source)?.parse()?;
                     let import_parent_dir = import_full_path.parent().unwrap_or(Path::new(""));
@@ -367,12 +365,12 @@ impl Compiler {
         mut self,
         path: P,
     ) -> Result<CompileObject, Diagnostics> {
-        let source = fs::read_to_string(&path).map_err(|_| {
-            Diagnostics::compiler_error(
+        let Ok(source) = fs::read_to_string(&path) else {
+            return Err(Diagnostics::compiler_error(
                 format!("can not open file {}", path.as_ref().display()),
                 Span::default(),
-            )
-        })?;
+            ));
+        };
 
         let parse_info = Parser::new(&source)?.parse()?;
         let parent_dir = path.as_ref().parent().unwrap_or(Path::new(""));

@@ -93,7 +93,9 @@ impl VirtualMachine {
                     let frame = unsafe { self.call_stack.pop().unwrap_unchecked() };
 
                     unsafe {
-                        *self.register_file.get_unchecked_mut(frame.dest_register as usize) = ret;
+                        *self
+                            .register_file
+                            .get_unchecked_mut(frame.dest_register as usize) = ret;
                     }
 
                     pc = frame.return_pc;
@@ -122,7 +124,9 @@ impl VirtualMachine {
                                 pc: target_pc,
                                 param_register,
                             } => {
-                                *self.register_file.get_unchecked_mut(param_register as usize) =
+                                *self
+                                    .register_file
+                                    .get_unchecked_mut(param_register as usize) =
                                     self.register_file.get_unchecked(inst.c as usize).clone();
                                 pc = target_pc;
                             }
@@ -139,7 +143,9 @@ impl VirtualMachine {
                                 pc: target_pc,
                                 param_register,
                             } => {
-                                *self.register_file.get_unchecked_mut(param_register as usize) =
+                                *self
+                                    .register_file
+                                    .get_unchecked_mut(param_register as usize) =
                                     self.register_file.get_unchecked(inst.c as usize).clone();
 
                                 pc = target_pc;
@@ -150,10 +156,11 @@ impl VirtualMachine {
                     continue;
                 }
                 Operator::LoadFunc => unsafe {
-                    *self.register_file.get_unchecked_mut(inst.a as usize) = VirtualMachineData::FuncPtr {
-                        pc: inst.b,
-                        param_register: inst.c,
-                    };
+                    *self.register_file.get_unchecked_mut(inst.a as usize) =
+                        VirtualMachineData::FuncPtr {
+                            pc: inst.b,
+                            param_register: inst.c,
+                        };
                 },
                 Operator::LoadInt => unsafe {
                     *self.register_file.get_unchecked_mut(inst.a as usize) =
