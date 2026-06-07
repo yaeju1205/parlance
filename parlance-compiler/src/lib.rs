@@ -66,10 +66,6 @@ impl CompileObject {
 }
 
 impl CompileObject {
-    pub fn set_flatten(&mut self, flatten: Rc<Flatten>) {
-        self.flatten = flatten;
-    }
-
     pub fn link_object(&mut self, mut object: CompileObject) {
         self.function_map.extend(object.function_map.drain());
         self.binding_map.extend(object.binding_map.drain());
@@ -79,7 +75,7 @@ impl CompileObject {
         self.data_pool.append(&mut object.data_pool);
     }
 
-    pub fn build_value(
+    fn build_value_inner(
         &mut self,
         value_idx: FlattenIndex,
         is_tail: bool,
@@ -104,7 +100,7 @@ impl CompileObject {
                     callee_idx = idx;
                 }
 
-                let (arg_reg, mut arg_bc) = self.build_value(*arg, false)?;
+                let (arg_reg, mut arg_bc) = self.build_value_inner(*arg, false)?;
 
                 let mut bytecode: Bytecode = Vec::new();
 
@@ -140,7 +136,7 @@ impl CompileObject {
                         Ok((ret_reg, bytecode))
                     }
                 } else {
-                    let (callee_reg, mut callee_bc) = self.build_value(callee_idx, false)?;
+                    let (callee_reg, mut callee_bc) = self.build_value_inner(callee_idx, false)?;
 
                     bytecode.append(&mut arg_bc);
                     bytecode.append(&mut callee_bc);
@@ -175,7 +171,7 @@ impl CompileObject {
                 let dest = self.allocator.alloc();
                 self.binding_map.insert(value_idx, dest);
 
-                let (body_register, body_bytecode) = self.build_value(*body, true)?;
+                let (body_register, body_bytecode) = self.build_value_inner(*body, true)?;
 
                 let func_pc = self.function_bytecode.len();
                 let func = Rc::new(Function {
@@ -235,7 +231,7 @@ impl CompileObject {
                 Ok((dest, bytecode))
             }
             FlattenValueKind::Variable(idx) => {
-                let (dest, mut var_bc) = self.build_value(*idx, is_tail)?;
+                let (dest, mut var_bc) = self.build_value_inner(*idx, is_tail)?;
                 self.binding_map.insert(value_idx, dest);
                 bytecode.append(&mut var_bc);
                 Ok((dest, bytecode))
@@ -260,12 +256,19 @@ impl CompileObject {
         }
     }
 
+    pub fn build_value(
+        &mut self,
+        value_idx: FlattenIndex,
+    ) -> Result<(usize, Bytecode), Diagnostics> {
+        self.build_value_inner(value_idx, false)
+    }
+
     pub fn build_binding(
         mut self,
         binding_name: &str,
     ) -> Result<(usize, Bytecode, DataPool), Diagnostics> {
         if let Some(value_idx) = self.flatten.clone().bindings.get(binding_name) {
-            let (_, mut main_bytecode) = self.build_value(*value_idx, false)?;
+            let (_, mut main_bytecode) = self.build_value(*value_idx)?;
             let mut func_bytecode = self.function_bytecode;
             let pc = func_bytecode.len();
 
