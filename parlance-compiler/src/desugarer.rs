@@ -112,10 +112,10 @@ pub fn desugar_expression(expr: Rc<Expression>) -> Result<DesugarValue, Diagnost
     }
 }
 
-pub fn desugar_statement(stat: Statement) -> Result<DesugarBinding, Diagnostics> {
+pub fn desugar_statement(stat: &Statement) -> Result<DesugarBinding, Diagnostics> {
     let mut scheme = Vec::new();
 
-    for scheme_stat in stat.scheme.into_iter() {
+    for scheme_stat in stat.scheme.iter() {
         scheme.push(desugar_statement(scheme_stat)?);
     }
 
@@ -187,7 +187,7 @@ pub fn desugar(stats: Vec<Statement>) -> Result<Vec<DesugarBinding>, Diagnostics
     let mut bindings = Vec::new();
 
     for stat in stats.into_iter() {
-        bindings.push(desugar_statement(stat)?);
+        bindings.push(desugar_statement(&stat)?);
     }
 
     Ok(bindings)

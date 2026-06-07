@@ -1,1 +1,2 @@
-public a = 0
+c = 3
+public a = prelude::math::add 0 c

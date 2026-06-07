@@ -66,6 +66,13 @@ impl VirtualMachine {
         self.data_pool = data_pool;
     }
 
+    pub fn with_load(mut self, (pc, bytecode, data_pool): (usize, Bytecode, DataPool)) -> Self {
+        self.pc = pc;
+        self.bytecode = bytecode;
+        self.data_pool = data_pool;
+        self
+    }
+
     #[inline(always)]
     pub unsafe fn run(&mut self) {
         let mut pc = self.pc;

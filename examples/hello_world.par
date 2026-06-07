@@ -1,3 +1,5 @@
+import "a.par"
+
 infix 1 right $ a b = a b
 
-main = prelude::io::print $ "Hello, World!"
+main = prelude::io::print $ a

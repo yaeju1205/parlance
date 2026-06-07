@@ -26,7 +26,7 @@ pub struct FlattenValue {
     pub kind: FlattenValueKind,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Flatten {
     pub file: Vec<Rc<FlattenValue>>,
     pub bindings: HashMap<Rc<str>, FlattenIndex>,
@@ -217,7 +217,7 @@ impl Flattener {
 
     pub fn flatten_binding(
         &mut self,
-        binding: Rc<DesugarBinding>,
+        binding: DesugarBinding,
     ) -> Result<FlattenIndex, Diagnostics> {
         let parent_scope = self.binding_scope.clone();
 
@@ -253,10 +253,7 @@ impl Flattener {
         }
 
         for binding in bindings.into_iter() {
-            flatten_bindings.insert(
-                binding.name.clone(),
-                self.flatten_binding(Rc::new(binding))?,
-            );
+            flatten_bindings.insert(binding.name.clone(), self.flatten_binding(binding)?);
         }
 
         Ok(Flatten {

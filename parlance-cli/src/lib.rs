@@ -1,8 +1,8 @@
-use std::{fs, process};
+use std::process;
 
 use clap::Parser;
 use parlance_compiler::Compiler;
-use parlance_prelude::io::print;
+use parlance_prelude::{io::print, math::add};
 use parlance_vm::VirtualMachine;
 
 #[derive(Parser)]
@@ -21,24 +21,18 @@ enum Commands {
     Run { file: String },
 }
 
-fn read_source(file: &str) -> String {
-    fs::read_to_string(file).unwrap_or_else(|err| {
-        eprintln!("{file}: {err}");
-        process::exit(1);
-    })
-}
-
 pub fn run() {
     let cli = Cli::parse();
 
     match cli.command {
         Commands::Run { file } => {
-            let source = read_source(&file);
             let mut compiler = Compiler::new();
+
             compiler.insert_bytecode_function(print());
+            compiler.insert_bytecode_function(add());
 
             let build_info = compiler
-                .compile_source(&source)
+                .compile_source_file(file)
                 .unwrap_or_else(|diagnostic| {
                     eprintln!("{}", diagnostic.to_string());
                     process::exit(1);
@@ -49,8 +43,7 @@ pub fn run() {
                     process::exit(1);
                 });
 
-            let mut vm = VirtualMachine::new();
-            vm.load(build_info);
+            let mut vm = VirtualMachine::new().with_load(build_info);
 
             unsafe {
                 vm.run();

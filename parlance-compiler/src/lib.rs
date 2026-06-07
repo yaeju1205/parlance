@@ -1,7 +1,7 @@
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap, fs, path::Path, rc::Rc};
 
 use parlance_diagnostics::{Diagnostics, Span};
-use parlance_parser::Parser;
+use parlance_parser::{Import, Parser};
 use parlance_vm::{Bytecode, DataPool, Instruction, Operator, VirtualMachineData};
 
 use crate::{
@@ -12,7 +12,7 @@ use crate::{
 mod desugarer;
 mod flattener;
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Allocator {
     pub register: usize,
 }
@@ -29,6 +29,7 @@ impl Allocator {
     }
 }
 
+#[derive(Debug)]
 pub struct Function {
     pub param_register: usize,
     pub pc: usize,
@@ -39,6 +40,7 @@ pub struct BytecodeFunction {
     pub build: fn(compile_object: &mut CompileObject, func: Rc<Function>) -> Bytecode,
 }
 
+#[derive(Debug, Default)]
 pub struct CompileObject {
     pub flatten: Rc<Flatten>,
     pub allocator: Allocator,
@@ -50,6 +52,33 @@ pub struct CompileObject {
 }
 
 impl CompileObject {
+    pub fn new(flatten: Rc<Flatten>) -> Self {
+        Self {
+            flatten,
+            allocator: Allocator::new(),
+            function_map: HashMap::new(),
+            function_bytecode: Vec::new(),
+            binding_map: HashMap::new(),
+            string_cache: HashMap::new(),
+            data_pool: Vec::new(),
+        }
+    }
+}
+
+impl CompileObject {
+    pub fn set_flatten(&mut self, flatten: Rc<Flatten>) {
+        self.flatten = flatten;
+    }
+
+    pub fn link_object(&mut self, mut object: CompileObject) {
+        self.function_map.extend(object.function_map.drain());
+        self.binding_map.extend(object.binding_map.drain());
+        self.string_cache.extend(object.string_cache.drain());
+
+        self.function_bytecode.append(&mut object.function_bytecode);
+        self.data_pool.append(&mut object.data_pool);
+    }
+
     pub fn build_value(
         &mut self,
         value_idx: FlattenIndex,
@@ -75,12 +104,12 @@ impl CompileObject {
                     callee_idx = idx;
                 }
 
-                let (arg_reg, arg_bc) = self.build_value(*arg, false)?;
+                let (arg_reg, mut arg_bc) = self.build_value(*arg, false)?;
 
                 let mut bytecode: Bytecode = Vec::new();
 
                 if let Some(callee_func) = self.function_map.get(&callee_idx).cloned() {
-                    bytecode.extend(arg_bc);
+                    bytecode.append(&mut arg_bc);
 
                     bytecode.push(Instruction {
                         operator: Operator::Mov,
@@ -111,10 +140,10 @@ impl CompileObject {
                         Ok((ret_reg, bytecode))
                     }
                 } else {
-                    let (callee_reg, callee_bc) = self.build_value(callee_idx, false)?;
+                    let (callee_reg, mut callee_bc) = self.build_value(callee_idx, false)?;
 
-                    bytecode.extend(arg_bc);
-                    bytecode.extend(callee_bc);
+                    bytecode.append(&mut arg_bc);
+                    bytecode.append(&mut callee_bc);
 
                     if is_tail {
                         bytecode.push(Instruction {
@@ -163,7 +192,7 @@ impl CompileObject {
                     c: 0,
                 });
 
-                self.function_bytecode.extend(func_bytecode);
+                self.function_bytecode.append(&mut func_bytecode);
 
                 bytecode.push(Instruction {
                     operator: Operator::LoadFunc,
@@ -178,7 +207,7 @@ impl CompileObject {
                 bytecode.push(Instruction {
                     operator: Operator::LoadInt,
                     a: dest,
-                    b: *int_value as u32 as usize,
+                    b: int_value.clone() as u32 as usize,
                     c: 0,
                 });
                 self.binding_map.insert(value_idx, dest);
@@ -206,9 +235,9 @@ impl CompileObject {
                 Ok((dest, bytecode))
             }
             FlattenValueKind::Variable(idx) => {
-                let (dest, var_bc) = self.build_value(*idx, is_tail)?;
+                let (dest, mut var_bc) = self.build_value(*idx, is_tail)?;
                 self.binding_map.insert(value_idx, dest);
-                bytecode.extend(var_bc);
+                bytecode.append(&mut var_bc);
                 Ok((dest, bytecode))
             }
             FlattenValueKind::None => {
@@ -236,13 +265,13 @@ impl CompileObject {
         binding_name: &str,
     ) -> Result<(usize, Bytecode, DataPool), Diagnostics> {
         if let Some(value_idx) = self.flatten.clone().bindings.get(binding_name) {
-            let (_, main_bytecode) = self.build_value(*value_idx, false)?;
-            let func_bytecode = self.function_bytecode;
+            let (_, mut main_bytecode) = self.build_value(*value_idx, false)?;
+            let mut func_bytecode = self.function_bytecode;
             let pc = func_bytecode.len();
 
             let mut bytecode: Bytecode = Vec::new();
-            bytecode.extend(func_bytecode);
-            bytecode.extend(main_bytecode);
+            bytecode.append(&mut func_bytecode);
+            bytecode.append(&mut main_bytecode);
 
             Ok((pc, bytecode, self.data_pool))
         } else {
@@ -281,24 +310,90 @@ impl Compiler {
         let bindings = desugar(stats)?;
         let flatten = self.flattner.flatten(bindings)?;
 
-        let mut compile_object = CompileObject {
-            flatten: Rc::new(flatten),
-            allocator: Allocator::new(),
-            function_map: HashMap::new(),
-            function_bytecode: Vec::new(),
-            binding_map: HashMap::new(),
-            string_cache: HashMap::new(),
-            data_pool: Vec::new(),
-        };
+        let mut compile_object = CompileObject::new(Rc::new(flatten));
 
-        for (binding_idx, bytecode_func) in self.bytecode_functions.iter().enumerate() {
-            let func = Rc::new(Function {
-                param_register: compile_object.allocator.alloc(),
-                pc: compile_object.function_bytecode.len(),
-            });
-            let bytecode = (bytecode_func.build)(&mut compile_object, func.clone());
-            compile_object.function_bytecode.extend(bytecode);
-            compile_object.function_map.insert(binding_idx, func);
+        for bytecode_func in &self.bytecode_functions {
+            if let Some(&flatten_idx) = compile_object
+                .flatten
+                .bindings
+                .get(bytecode_func.name.as_str())
+            {
+                let func = Rc::new(Function {
+                    param_register: compile_object.allocator.alloc(),
+                    pc: compile_object.function_bytecode.len(),
+                });
+                let mut bytecode = (bytecode_func.build)(&mut compile_object, func.clone());
+                compile_object.function_bytecode.append(&mut bytecode);
+                compile_object.function_map.insert(flatten_idx, func);
+            }
+        }
+
+        Ok(compile_object)
+    }
+
+    fn process_imports(
+        &mut self,
+        imports: Vec<Import>,
+        parent_dir: &Path,
+    ) -> Result<(), Diagnostics> {
+        for import in imports {
+            match import {
+                Import::Path(import_path) => {
+                    let import_full_path = parent_dir.join(import_path.as_ref());
+
+                    let source = fs::read_to_string(&import_full_path).map_err(|_| {
+                        Diagnostics::compiler_error(
+                            format!("can not open file {}", import_path.as_ref()),
+                            Span::default(),
+                        )
+                    })?;
+
+                    let parse_info = Parser::new(&source)?.parse()?;
+                    let import_parent_dir = import_full_path.parent().unwrap_or(Path::new(""));
+
+                    self.process_imports(parse_info.imports, import_parent_dir)?;
+
+                    let import_bindings = desugar(parse_info.statements)?;
+                    for binding in import_bindings {
+                        self.flattner.flatten_binding(binding)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn compile_source_file<P: AsRef<Path>>(
+        mut self,
+        path: P,
+    ) -> Result<CompileObject, Diagnostics> {
+        let source = fs::read_to_string(&path).map_err(|_| {
+            Diagnostics::compiler_error(
+                format!("can not open file {}", path.as_ref().display()),
+                Span::default(),
+            )
+        })?;
+
+        let parse_info = Parser::new(&source)?.parse()?;
+        let parent_dir = path.as_ref().parent().unwrap_or(Path::new(""));
+
+        self.process_imports(parse_info.imports, parent_dir)?;
+
+        let bindings = desugar(parse_info.statements)?;
+        let flatten = Rc::new(self.flattner.flatten(bindings)?);
+
+        let mut compile_object = CompileObject::new(flatten.clone());
+
+        for bytecode_func in &self.bytecode_functions {
+            if let Some(&flatten_idx) = flatten.bindings.get(bytecode_func.name.as_str()) {
+                let func = Rc::new(Function {
+                    param_register: compile_object.allocator.alloc(),
+                    pc: compile_object.function_bytecode.len(),
+                });
+                let mut bytecode = (bytecode_func.build)(&mut compile_object, func.clone());
+                compile_object.function_bytecode.append(&mut bytecode);
+                compile_object.function_map.insert(flatten_idx, func);
+            }
         }
 
         Ok(compile_object)
