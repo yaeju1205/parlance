@@ -1,8 +1,0 @@
-print = prelude::io::print
-add = prelude::math::add
-
-infix 1 right $ a b = a b
-
-infix 2 + a b = add a b
-
-main = print (1 + 2)

@@ -1,4 +1,4 @@
-use std::process;
+use std::{process, time::Instant};
 
 use clap::Parser;
 use parlance_compiler::Compiler;
@@ -45,8 +45,16 @@ pub fn run() {
 
             let mut vm = VirtualMachine::new().with_load(build_info);
 
-            unsafe {
-                vm.run();
+            if cli.verbose {
+                let instant = Instant::now();
+                unsafe {
+                    vm.run();
+                }
+                println!("running time: {:?}", instant.elapsed());
+            } else {
+                unsafe {
+                    vm.run();
+                }
             }
         }
     }
