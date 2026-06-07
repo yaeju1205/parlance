@@ -17,7 +17,6 @@ pub enum TokenKind {
     Import,
     Public,
     Extern,
-    Namespace,
     NewLine,
     String(Rc<str>),
     Int(i32),
@@ -76,7 +75,6 @@ pub fn tokenize<'a>(source: &'a str) -> Result<Vec<Token>, Diagnostics> {
                 "import" => TokenKind::Import,
                 "public" => TokenKind::Public,
                 "extern" => TokenKind::Extern,
-                "namespace" => TokenKind::Namespace,
                 _ => TokenKind::Identifier(Rc::from(literal)),
             };
 

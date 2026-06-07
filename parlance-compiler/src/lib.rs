@@ -1,11 +1,11 @@
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap, fs, rc::Rc};
 
 use parlance_diagnostics::{Diagnostics, Span};
-use parlance_parser::Statement;
+use parlance_parser::{Import, ParseInfo, Parser};
 use parlance_vm::{Bytecode, DataPool, Instruction, Operator, VirtualMachineData};
 
 use crate::{
-    desugarer::Desugarer,
+    desugarer::{DesugarBinding, Desugarer},
     flattener::{Flatten, FlattenIndex, FlattenValue, FlattenValueKind, Flattener},
 };
 
@@ -51,11 +51,45 @@ pub struct Compiler {
 }
 
 impl Compiler {
+    fn import(imports: Vec<Import>) -> Result<Vec<DesugarBinding>, Diagnostics> {
+        let mut bindings = Vec::new();
+
+        for import in imports {
+            match import {
+                Import::Path(path) => {
+                    let Ok(source) = fs::read_to_string(path.as_ref()) else {
+                        return Err(Diagnostics::compiler_error(
+                            format!("can not open file {path}"),
+                            Span::default(),
+                        ));
+                    };
+
+                    let parse_info = Parser::new(&source)?.parse()?;
+                    bindings.extend(Self::import(parse_info.imports)?);
+                    bindings.extend(
+                        Desugarer::new().desugar(
+                            parse_info
+                                .statements
+                                .into_iter()
+                                .filter_map(|stat| if stat.is_public { Some(stat) } else { None })
+                                .collect(),
+                        )?,
+                    );
+                }
+            }
+        }
+
+        Ok(bindings)
+    }
+
     pub fn new(
-        stats: Vec<Statement>,
+        parse_info: ParseInfo,
         bytecode_funcs: Vec<BytecodeFunction>,
     ) -> Result<Self, Diagnostics> {
-        let bindings = Desugarer::new().desugar(stats)?;
+        let mut bindings = Vec::new();
+
+        bindings.extend(Self::import(parse_info.imports)?);
+        bindings.extend(Desugarer::new().desugar(parse_info.statements)?);
         let mut flatten_bindings = Vec::new();
 
         for bytecode_func in bytecode_funcs.iter() {

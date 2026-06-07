@@ -1,4 +1,4 @@
-import pre
+import "examples/a.par"
 
 print = prelude::io::print
 add = prelude::math::add
@@ -9,12 +9,11 @@ infix 3 * a b = mul a b
 infix 1 right $ a b = a b
 
 pair x y f = f x y
-first p = p $ \x y -> x
+first p = let
+    first = \x y -> x
+in
+    p $ first
+
 second p = p $ \x y -> y
 
-a b c = let
-    result = b + c
-in
-    result
-
-main = print $ a 2 3
+main = print $ a

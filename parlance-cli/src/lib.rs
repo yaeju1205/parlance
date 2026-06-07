@@ -33,13 +33,13 @@ fn compile_source(source: &str, verbose: bool) -> Result<VirtualMachine, Diagnos
     }
 
     let mut parser = ParlanceParser::new(source)?;
-    let stats = parser.parse()?.statements;
+    let parse_info = parser.parse()?;
 
     if verbose {
         println!("!) parsing complete");
     }
 
-    let compiler = Compiler::new(stats, vec![print(), add(), sub(), mul(), div()])?;
+    let compiler = Compiler::new(parse_info, vec![print(), add(), sub(), mul(), div()])?;
 
     if verbose {
         println!("!) compile complete");
