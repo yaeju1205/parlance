@@ -36,15 +36,6 @@ impl ModuleSource for FsModuleSource {
     }
 }
 
-fn pars_virtual_path(segments: &[String]) -> PathBuf {
-    let mut path = PathBuf::from("/");
-    for segment in segments {
-        path.push(segment);
-    }
-    path.set_extension("par");
-    path
-}
-
 pub struct ParsModuleSource {
     files: HashMap<PathBuf, String>,
 }
@@ -52,18 +43,19 @@ pub struct ParsModuleSource {
 impl ParsModuleSource {
     pub fn new(pars: &parlance_module::Pars) -> Result<Self, Diagnostics> {
         let mut files = HashMap::new();
-        for par in &pars.pars {
-            let virtual_path = pars_virtual_path(&par.module.path);
-            let source = match &par.parable {
-                parlance_module::Parable::Source(source) => source.clone(),
-                parlance_module::Parable::Path(path) => fs::read_to_string(path).map_err(|err| {
-                    Diagnostics::compiler_error(
-                        format!("can not read parable {}: {}", path.display(), err),
-                        Span::default(),
-                    )
-                })?,
+        for file in &pars.files {
+            let content = match &file.content {
+                parlance_module::FileContent::Source(source) => source.clone(),
+                parlance_module::FileContent::Path(path) => {
+                    fs::read_to_string(path).map_err(|err| {
+                        Diagnostics::compiler_error(
+                            format!("can not read pars file {}: {}", path.display(), err),
+                            Span::default(),
+                        )
+                    })?
+                }
             };
-            files.insert(virtual_path, source);
+            files.insert(PathBuf::from(&file.path), content);
         }
         Ok(Self { files })
     }
@@ -89,10 +81,15 @@ struct ManifestPackage {
 }
 
 #[derive(Deserialize)]
+struct Dependency {
+    path: String,
+}
+
+#[derive(Deserialize)]
 struct Manifest {
     package: ManifestPackage,
     #[serde(default)]
-    externs: HashMap<String, String>,
+    dependencies: HashMap<String, Dependency>,
 }
 
 struct Package {
@@ -176,7 +173,7 @@ impl<'s> Resolver<'s> {
     fn find_manifest_root(&self, start_dir: &Path) -> Option<PathBuf> {
         let mut dir = start_dir.to_path_buf();
         loop {
-            if self.source.is_file(&dir.join("parlance.toml")) {
+            if self.source.is_file(&dir.join("astro.toml")) {
                 return Some(dir);
             }
             match dir.parent() {
@@ -196,7 +193,7 @@ impl<'s> Resolver<'s> {
         let mut externs: HashMap<Rc<str>, PathBuf> = HashMap::new();
         let mut name: Option<Rc<str>> = None;
 
-        let manifest_path = root.join("parlance.toml");
+        let manifest_path = root.join("astro.toml");
         if self.source.is_file(&manifest_path) {
             let content = self.source.read_to_string(&manifest_path).ok_or_else(|| {
                 Diagnostics::compiler_error(
@@ -213,10 +210,10 @@ impl<'s> Resolver<'s> {
 
             name = Some(Rc::from(manifest.package.name.as_str()));
 
-            for (name, rel) in manifest.externs {
+            for (name, dependency) in manifest.dependencies {
                 externs.insert(
                     Rc::from(name.as_str()),
-                    self.source.canonicalize(&root.join(rel)),
+                    self.source.canonicalize(&root.join(dependency.path)),
                 );
             }
         }
@@ -420,8 +417,8 @@ impl<'s> Resolver<'s> {
                             None => {
                                 return Err(Diagnostics::compiler_error(
                                     format!(
-                                        "extern '{}' points at '{}' which has no \
-                                         '[package] name' in parlance.toml",
+                                        "dependency '{}' points at '{}' which has no \
+                                         '[package] name' in astro.toml",
                                         head.kind,
                                         extern_root.display()
                                     ),
@@ -872,13 +869,7 @@ pub fn resolve_pars(
     injected_externs: HashMap<Rc<str>, PathBuf>,
     prelude_names: &[Rc<str>],
 ) -> Result<Vec<DesugarBinding>, Diagnostics> {
-    let entry_par = pars.pars.get(pars.entry).ok_or_else(|| {
-        Diagnostics::compiler_error(
-            format!("pars entry index {} is out of range", pars.entry),
-            Span::default(),
-        )
-    })?;
-    let entry = pars_virtual_path(&entry_par.module.path);
+    let entry = PathBuf::from(&pars.entry);
     let source = ParsModuleSource::new(pars)?;
     resolve_program_with_source(&source, &entry, injected_externs, prelude_names)
 }
@@ -954,7 +945,7 @@ mod tests {
     #[test]
     fn resolves_in_memory_without_touching_disk() {
         let source = MemorySource::with(&[
-            ("/app/parlance.toml", "[package]\nname = \"app\"\n"),
+            ("/app/astro.toml", "[package]\nname = \"app\"\n"),
             ("/app/main.par", "import pkg::util::io::{answer}\nmain = answer\n"),
             ("/app/util/io.par", "public answer = 42\n"),
         ]);
@@ -979,26 +970,23 @@ mod tests {
 
     #[test]
     fn resolves_a_pars_bundle() {
-        use parlance_module::{Module, Par, Parable, Pars};
+        use parlance_module::{FileContent, Pars, VirtualFile};
+
+        let file = |path: &str, source: &str| VirtualFile {
+            path: path.to_string(),
+            content: FileContent::Source(source.to_string()),
+        };
 
         let pars = Pars {
-            pars: vec![
-                Par {
-                    module: Module {
-                        path: vec!["main".to_string()],
-                    },
-                    parable: Parable::Source(
-                        "import pkg::util::io::{answer}\nmain = answer\n".to_string(),
-                    ),
-                },
-                Par {
-                    module: Module {
-                        path: vec!["util".to_string(), "io".to_string()],
-                    },
-                    parable: Parable::Source("public answer = 42\n".to_string()),
-                },
+            files: vec![
+                file("/app/astro.toml", "[package]\nname = \"app\"\n"),
+                file(
+                    "/app/main.par",
+                    "import pkg::util::io::{answer}\nmain = answer\n",
+                ),
+                file("/app/util/io.par", "public answer = 42\n"),
             ],
-            entry: 0,
+            entry: "/app/main.par".to_string(),
         };
 
         let bindings =
@@ -1015,7 +1003,7 @@ mod tests {
     #[test]
     fn export_star_reexports_imported_symbols() {
         let source = MemorySource::with(&[
-            ("/app/parlance.toml", "[package]\nname = \"app\"\n"),
+            ("/app/astro.toml", "[package]\nname = \"app\"\n"),
             (
                 "/app/main.par",
                 "import pkg::bridge::*\nmain = answer\n",
@@ -1041,7 +1029,7 @@ mod tests {
     #[test]
     fn item_alias_renames_and_hides_source_name() {
         let source = MemorySource::with(&[
-            ("/app/parlance.toml", "[package]\nname = \"app\"\n"),
+            ("/app/astro.toml", "[package]\nname = \"app\"\n"),
             (
                 "/app/main.par",
                 "import pkg::io::{answer as a}\nmain = a\n",
@@ -1058,7 +1046,7 @@ mod tests {
         assert!(ok.is_ok(), "aliased import binds the alias name");
 
         let hidden = MemorySource::with(&[
-            ("/app/parlance.toml", "[package]\nname = \"app\"\n"),
+            ("/app/astro.toml", "[package]\nname = \"app\"\n"),
             (
                 "/app/main.par",
                 "import pkg::io::{answer as a}\nmain = answer\n",
@@ -1077,7 +1065,7 @@ mod tests {
     #[test]
     fn reexport_prelude_via_local() {
         let source = MemorySource::with(&[
-            ("/app/parlance.toml", "[package]\nname = \"app\"\n"),
+            ("/app/astro.toml", "[package]\nname = \"app\"\n"),
             ("/app/main.par", "import pkg::bridge::{builtin}\nmain = builtin\n"),
             ("/app/bridge.par", "export { builtin }\n"),
         ]);
@@ -1095,7 +1083,7 @@ mod tests {
     #[test]
     fn reexport_prelude_via_glob() {
         let source = MemorySource::with(&[
-            ("/app/parlance.toml", "[package]\nname = \"app\"\n"),
+            ("/app/astro.toml", "[package]\nname = \"app\"\n"),
             ("/app/main.par", "import pkg::bridge::{builtin}\nmain = builtin\n"),
             ("/app/bridge.par", "export *\n"),
         ]);
@@ -1113,7 +1101,7 @@ mod tests {
     #[test]
     fn reexport_prelude_chained_fromitems() {
         let source = MemorySource::with(&[
-            ("/app/parlance.toml", "[package]\nname = \"app\"\n"),
+            ("/app/astro.toml", "[package]\nname = \"app\"\n"),
             ("/app/main.par", "import pkg::bridge::{builtin}\nmain = builtin\n"),
             ("/app/bridge.par", "export pkg::leaf::{builtin}\n"),
             ("/app/leaf.par", "export { builtin }\n"),
@@ -1132,9 +1120,9 @@ mod tests {
     #[test]
     fn reexport_prelude_cross_package() {
         let source = MemorySource::with(&[
-            ("/app/parlance.toml", "[package]\nname = \"app\"\n[externs]\nstd = \"/std\"\n"),
+            ("/app/astro.toml", "[package]\nname = \"app\"\n[dependencies]\nstd = { path = \"/std\" }\n"),
             ("/app/main.par", "import std::prelude::{builtin}\nmain = builtin\n"),
-            ("/std/parlance.toml", "[package]\nname = \"std\"\n"),
+            ("/std/astro.toml", "[package]\nname = \"std\"\n"),
             ("/std/prelude.par", "export { builtin }\n"),
         ]);
 
@@ -1151,7 +1139,7 @@ mod tests {
     #[test]
     fn reexport_qualified_prelude_name() {
         let source = MemorySource::with(&[
-            ("/app/parlance.toml", "[package]\nname = \"app\"\n"),
+            ("/app/astro.toml", "[package]\nname = \"app\"\n"),
             ("/app/main.par", "import pkg::io::{print}\nmain = print 1\n"),
             ("/app/io.par", "export prelude::io::print\n"),
         ]);
@@ -1172,9 +1160,9 @@ mod tests {
     #[test]
     fn extern_import_name_must_match_package_name() {
         let matching = MemorySource::with(&[
-            ("/app/parlance.toml", "[package]\nname = \"app\"\n[externs]\nbar = \"/foo\"\n"),
+            ("/app/astro.toml", "[package]\nname = \"app\"\n[dependencies]\nbar = { path = \"/foo\" }\n"),
             ("/app/main.par", "import bar::io::{answer}\nmain = answer\n"),
-            ("/foo/parlance.toml", "[package]\nname = \"bar\"\n"),
+            ("/foo/astro.toml", "[package]\nname = \"bar\"\n"),
             ("/foo/io.par", "public answer = 1\n"),
         ]);
         assert!(
@@ -1184,9 +1172,9 @@ mod tests {
         );
 
         let mismatched = MemorySource::with(&[
-            ("/app/parlance.toml", "[package]\nname = \"app\"\n[externs]\nbar = \"/foo\"\n"),
+            ("/app/astro.toml", "[package]\nname = \"app\"\n[dependencies]\nbar = { path = \"/foo\" }\n"),
             ("/app/main.par", "import bar::io::{answer}\nmain = answer\n"),
-            ("/foo/parlance.toml", "[package]\nname = \"foo\"\n"),
+            ("/foo/astro.toml", "[package]\nname = \"foo\"\n"),
             ("/foo/io.par", "public answer = 1\n"),
         ]);
         assert!(
@@ -1199,7 +1187,7 @@ mod tests {
     #[test]
     fn private_symbol_is_not_importable() {
         let source = MemorySource::with(&[
-            ("/app/parlance.toml", "[package]\nname = \"app\"\n"),
+            ("/app/astro.toml", "[package]\nname = \"app\"\n"),
             ("/app/main.par", "import pkg::io::{secret}\nmain = secret\n"),
             ("/app/io.par", "secret = 1\n"),
         ]);

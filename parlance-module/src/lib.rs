@@ -3,26 +3,21 @@ use std::path::PathBuf;
 use rkyv::{Archive, Deserialize, Serialize, rancor::Error, util::AlignedVec, with::AsString};
 
 #[derive(Debug, Clone, PartialEq, Archive, Serialize, Deserialize)]
-pub struct Module {
-    pub path: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Archive, Serialize, Deserialize)]
-pub enum Parable {
+pub enum FileContent {
     Source(String),
     Path(#[rkyv(with = AsString)] PathBuf),
 }
 
 #[derive(Debug, Clone, PartialEq, Archive, Serialize, Deserialize)]
-pub struct Par {
-    pub module: Module,
-    pub parable: Parable,
+pub struct VirtualFile {
+    pub path: String,
+    pub content: FileContent,
 }
 
 #[derive(Debug, Clone, PartialEq, Archive, Serialize, Deserialize)]
 pub struct Pars {
-    pub pars: Vec<Par>,
-    pub entry: usize,
+    pub files: Vec<VirtualFile>,
+    pub entry: String,
 }
 
 impl Pars {
@@ -44,21 +39,17 @@ mod tests {
     #[test]
     fn round_trips_through_bytes() {
         let pars = Pars {
-            pars: vec![
-                Par {
-                    module: Module {
-                        path: vec!["main".to_string()],
-                    },
-                    parable: Parable::Source("main = answer\n".to_string()),
+            files: vec![
+                VirtualFile {
+                    path: "/greet/main.par".to_string(),
+                    content: FileContent::Source("main = answer\n".to_string()),
                 },
-                Par {
-                    module: Module {
-                        path: vec!["util".to_string(), "io".to_string()],
-                    },
-                    parable: Parable::Path(PathBuf::from("/app/util/io.par")),
+                VirtualFile {
+                    path: "/greet/util/io.par".to_string(),
+                    content: FileContent::Path(PathBuf::from("/app/util/io.par")),
                 },
             ],
-            entry: 0,
+            entry: "/greet/main.par".to_string(),
         };
 
         let bytes = pars.to_bytes().unwrap();

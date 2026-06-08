@@ -1,0 +1,6 @@
+[package]
+name = "greet"
+main = "main.par"
+
+[dependencies]
+greet_lib = { path = "../std" }

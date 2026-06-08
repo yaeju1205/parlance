@@ -14,3 +14,4 @@ parlance-parser = { path = "../parlance-parser" }
 parlance-compiler = { path = "../parlance-compiler" }
 parlance-vm = { path = "../parlance-vm" }
 parlance-prelude = { path = "../parlance-prelude" }
+parlance-module = { version = "0.1.0", path = "../parlance-module" }
