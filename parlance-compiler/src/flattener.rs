@@ -246,14 +246,35 @@ impl Flattener {
     }
 
     pub fn flatten(mut self, bindings: Vec<DesugarBinding>) -> Result<Flatten, Diagnostics> {
-        let mut flatten_bindings = HashMap::new();
+        let mut reserved: Vec<FlattenIndex> = Vec::with_capacity(bindings.len());
 
-        for (name, value_idx) in self.binding_pool.iter() {
-            flatten_bindings.insert(name.clone(), *value_idx);
+        for binding in &bindings {
+            let idx = self.alloc(FlattenValue {
+                span: binding.value.span.clone(),
+                kind: FlattenValueKind::None,
+            });
+            self.binding_pool.insert(binding.name.clone(), idx);
+            reserved.push(idx);
         }
 
-        for binding in bindings.into_iter() {
-            flatten_bindings.insert(binding.name.clone(), self.flatten_binding(binding)?);
+        for (binding, &reserved_idx) in bindings.iter().zip(reserved.iter()) {
+            let parent_scope = self.binding_scope.clone();
+
+            let actual_idx = if binding.scheme.is_empty() {
+                self.flatten_value(binding.value.clone())?
+            } else {
+                self.flatten_value_with_scheme(binding.value.clone(), binding.scheme.clone())?
+            };
+
+            let actual_value = self.flatten_file[actual_idx].clone();
+            self.flatten_file[reserved_idx] = actual_value;
+
+            self.binding_scope = parent_scope;
+        }
+
+        let mut flatten_bindings = HashMap::new();
+        for (name, value_idx) in self.binding_pool.iter() {
+            flatten_bindings.insert(name.clone(), *value_idx);
         }
 
         Ok(Flatten {

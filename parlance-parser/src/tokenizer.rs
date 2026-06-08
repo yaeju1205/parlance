@@ -15,8 +15,14 @@ pub enum TokenKind {
     In,
     Infix,
     Import,
+    Export,
+    As,
     Public,
     Extern,
+    PathSep,
+    LeftBrace,
+    RightBrace,
+    Comma,
     NewLine,
     String(Rc<str>),
     Int(i32),
@@ -59,7 +65,7 @@ pub fn tokenize<'a>(source: &'a str) -> Result<Vec<Token>, Diagnostics> {
 
         if matches!(ch, 'A'..='Z' | 'a'..='z' | '_') {
             while let Some(&next_ch) = chars.peek() {
-                if matches!(next_ch, 'A'..='Z' | 'a'..='z' | '_' | ':' | '0'..='9') {
+                if matches!(next_ch, 'A'..='Z' | 'a'..='z' | '_' | '0'..='9') {
                     chars.next();
                     current += next_ch.len_utf8();
                 } else {
@@ -73,6 +79,8 @@ pub fn tokenize<'a>(source: &'a str) -> Result<Vec<Token>, Diagnostics> {
                 "in" => TokenKind::In,
                 "infix" => TokenKind::Infix,
                 "import" => TokenKind::Import,
+                "export" => TokenKind::Export,
+                "as" => TokenKind::As,
                 "public" => TokenKind::Public,
                 "extern" => TokenKind::Extern,
                 _ => TokenKind::Identifier(Rc::from(literal)),
@@ -152,7 +160,38 @@ pub fn tokenize<'a>(source: &'a str) -> Result<Vec<Token>, Diagnostics> {
             continue;
         }
 
-        if ch == '(' || ch == ')' || ch == '=' || ch == '\\' {
+        if ch == ':' {
+            chars.next();
+            current += ch.len_utf8();
+
+            match chars.peek() {
+                Some(':') => {
+                    chars.next();
+                    current += ':'.len_utf8();
+                    tokens.push(Token {
+                        kind: TokenKind::PathSep,
+                        span: Span {
+                            start,
+                            end: current,
+                        },
+                    });
+                    continue;
+                }
+                _ => {
+                    return Err(Diagnostics::parser_error(
+                        "expected '::', found single ':'".to_string(),
+                        Span {
+                            start,
+                            end: current,
+                        },
+                    ));
+                }
+            }
+        }
+
+        if ch == '(' || ch == ')' || ch == '=' || ch == '\\' || ch == '{' || ch == '}'
+            || ch == ','
+        {
             chars.next();
             current += ch.len_utf8();
             let kind = match ch {
@@ -160,6 +199,9 @@ pub fn tokenize<'a>(source: &'a str) -> Result<Vec<Token>, Diagnostics> {
                 ')' => TokenKind::RightParen,
                 '=' => TokenKind::Equal,
                 '\\' => TokenKind::Lambda,
+                '{' => TokenKind::LeftBrace,
+                '}' => TokenKind::RightBrace,
+                ',' => TokenKind::Comma,
                 _ => unreachable!(),
             };
             tokens.push(Token {
@@ -174,7 +216,10 @@ pub fn tokenize<'a>(source: &'a str) -> Result<Vec<Token>, Diagnostics> {
 
         while let Some(&next_ch) = chars.peek() {
             if !next_ch.is_whitespace()
-                && !matches!(next_ch, 'A'..='Z' | 'a'..='z' | '0'..='9' | '(' | ')' | '"')
+                && !matches!(
+                    next_ch,
+                    'A'..='Z' | 'a'..='z' | '0'..='9' | '(' | ')' | '"' | ':' | '{' | '}' | ','
+                )
             {
                 chars.next();
                 current += next_ch.len_utf8();

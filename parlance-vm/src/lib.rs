@@ -82,7 +82,10 @@ impl VirtualMachine {
         while (pc as usize) < code_len {
             let inst = unsafe { self.bytecode.get_unchecked(pc as usize) };
             match inst.operator {
-                Operator::Goto => pc = inst.a,
+                Operator::Goto => {
+                    pc = inst.a;
+                    continue;
+                }
                 Operator::Mov => unsafe {
                     *self.register_file.get_unchecked_mut(inst.a as usize) =
                         self.register_file.get_unchecked(inst.b as usize).clone();

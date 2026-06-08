@@ -1,16 +1,18 @@
-use std::{collections::HashMap, fs, path::Path, rc::Rc};
+use std::{collections::HashMap, path::{Path, PathBuf}, rc::Rc};
 
 use parlance_diagnostics::{Diagnostics, Span};
-use parlance_parser::{Import, Parser};
+use parlance_parser::Parser;
 use parlance_vm::{Bytecode, DataPool, Instruction, Operator, VirtualMachineData};
 
 use crate::{
     desugarer::desugar,
     flattener::{Flatten, FlattenIndex, FlattenValue, FlattenValueKind, Flattener},
+    resolver::resolve_program,
 };
 
 mod desugarer;
 mod flattener;
+mod resolver;
 
 #[derive(Debug, Default)]
 pub struct Allocator {
@@ -285,11 +287,17 @@ impl CompileObject {
 pub struct Compiler {
     pub bytecode_functions: Vec<BytecodeFunction>,
     pub flattner: Flattener,
+    pub externs: HashMap<Rc<str>, PathBuf>,
 }
 
 impl Compiler {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn add_extern<P: AsRef<Path>>(&mut self, name: &str, root: P) {
+        self.externs
+            .insert(Rc::from(name), root.as_ref().to_path_buf());
     }
 
     pub fn insert_bytecode_function(&mut self, bc_func: BytecodeFunction) {
@@ -329,55 +337,17 @@ impl Compiler {
         Ok(compile_object)
     }
 
-    fn process_imports(
-        &mut self,
-        imports: Vec<Import>,
-        parent_dir: &Path,
-    ) -> Result<(), Diagnostics> {
-        for import in imports {
-            match import {
-                Import::Path(import_path) => {
-                    let import_full_path = parent_dir.join(import_path.as_ref());
-
-                    let Ok(source) = fs::read_to_string(&import_full_path) else {
-                        return Err(Diagnostics::compiler_error(
-                            format!("can not open file {}", import_path.as_ref()),
-                            Span::default(),
-                        ));
-                    };
-
-                    let parse_info = Parser::new(&source)?.parse()?;
-                    let import_parent_dir = import_full_path.parent().unwrap_or(Path::new(""));
-
-                    self.process_imports(parse_info.imports, import_parent_dir)?;
-
-                    let import_bindings = desugar(parse_info.statements)?;
-                    for binding in import_bindings {
-                        self.flattner.flatten_binding(binding)?;
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
     pub fn compile_source_file<P: AsRef<Path>>(
-        mut self,
+        self,
         path: P,
     ) -> Result<CompileObject, Diagnostics> {
-        let Ok(source) = fs::read_to_string(&path) else {
-            return Err(Diagnostics::compiler_error(
-                format!("can not open file {}", path.as_ref().display()),
-                Span::default(),
-            ));
-        };
+        let prelude_names: Vec<Rc<str>> = self
+            .bytecode_functions
+            .iter()
+            .map(|func| Rc::from(func.name.as_str()))
+            .collect();
 
-        let parse_info = Parser::new(&source)?.parse()?;
-        let parent_dir = path.as_ref().parent().unwrap_or(Path::new(""));
-
-        self.process_imports(parse_info.imports, parent_dir)?;
-
-        let bindings = desugar(parse_info.statements)?;
+        let bindings = resolve_program(path.as_ref(), self.externs.clone(), &prelude_names)?;
         let flatten = Rc::new(self.flattner.flatten(bindings)?);
 
         let mut compile_object = CompileObject::new(flatten.clone());

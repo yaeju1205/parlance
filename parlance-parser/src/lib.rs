@@ -12,7 +12,7 @@ pub enum Associativity {
     Right,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Node<T> {
     pub span: Span,
     pub kind: T,
@@ -78,13 +78,73 @@ pub struct Statement {
     pub is_public: bool,
 }
 
-pub enum Import {
-    Path(Rc<str>),
+#[derive(Debug, Clone)]
+pub enum PathAnchor {
+    SelfMod,
+    Super(usize),
+    Pkg,
+    Plain,
+}
+
+#[derive(Debug, Clone)]
+pub struct ModulePath {
+    pub anchor: PathAnchor,
+    pub segments: Vec<Node<Rc<str>>>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct ItemSpec {
+    pub name: Node<Rc<str>>,
+    pub alias: Option<Node<Rc<str>>>,
+}
+
+#[derive(Debug)]
+pub enum ImportTarget {
+    Module,
+    Glob,
+    Items(Vec<ItemSpec>),
+}
+
+#[derive(Debug)]
+pub struct Import {
+    pub path: ModulePath,
+    pub target: ImportTarget,
+    pub alias: Option<Node<Rc<str>>>,
+    pub span: Span,
+}
+
+#[derive(Debug)]
+pub enum ExportItem {
+    Local(Vec<ItemSpec>),
+    LocalGlob,
+    FromGlob(ModulePath),
+    FromItems(ModulePath, Vec<ItemSpec>),
+}
+
+#[derive(Debug)]
+pub struct Export {
+    pub item: ExportItem,
+    pub span: Span,
+}
+
+#[derive(Debug)]
+pub struct Extern {
+    pub name: Node<Rc<str>>,
+    pub span: Span,
 }
 
 pub struct ParseInfo {
+    pub externs: Vec<Extern>,
     pub imports: Vec<Import>,
+    pub exports: Vec<Export>,
     pub statements: Vec<Statement>,
+}
+
+enum PathSelector {
+    None,
+    Glob,
+    Items(Vec<ItemSpec>),
 }
 
 pub struct Parser<'a> {
@@ -220,10 +280,31 @@ impl<'a> Parser<'a> {
         };
 
         match &token.kind {
-            TokenKind::Identifier(name) => Ok(Expression {
-                span: token.span.clone(),
-                kind: ExpressionKind::Variable { name: name.clone() },
-            }),
+            TokenKind::Identifier(name) => {
+                let mut full = name.to_string();
+                let mut end = token.span.end;
+
+                while matches!(self.peek_token().map(|t| t.kind.mem_equal(&TokenKind::PathSep)), Some(true))
+                {
+                    self.next_token();
+                    let segment = self.expect_token(TokenKind::Identifier(Rc::from("")))?;
+                    if let TokenKind::Identifier(part) = &segment.kind {
+                        full.push_str("::");
+                        full.push_str(part);
+                        end = segment.span.end;
+                    }
+                }
+
+                Ok(Expression {
+                    span: Span {
+                        start: token.span.start,
+                        end,
+                    },
+                    kind: ExpressionKind::Variable {
+                        name: Rc::from(full.as_str()),
+                    },
+                })
+            }
             TokenKind::Infix => {
                 let Some(symbol) = self.next_token() else {
                     return Err(Diagnostics::parser_error(
@@ -549,29 +630,98 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse_imports(&mut self) -> Result<Vec<Import>, Diagnostics> {
-        let mut imports = Vec::new();
-        loop {
-            let token = if let Some(token) = self.peek_token() {
-                token
-            } else {
-                return Ok(imports);
-            };
-            let start = token.span.start;
+    fn parse_item_list(&mut self) -> Result<Vec<ItemSpec>, Diagnostics> {
+        self.expect_token(TokenKind::LeftBrace)?;
+        let mut items = Vec::new();
 
-            if !matches!(&token.kind, TokenKind::Import) {
-                if let TokenKind::NewLine = &token.kind {
-                    self.next_token();
-                    continue;
+        loop {
+            let Some(token) = self.next_token() else {
+                return Err(Diagnostics::parser_error(
+                    "expected item or '}', found EOF".to_string(),
+                    Span {
+                        start: 0,
+                        end: self.source.len(),
+                    },
+                ));
+            };
+
+            match &token.kind {
+                TokenKind::Identifier(name) => {
+                    let item_name = Node {
+                        kind: name.clone(),
+                        span: token.span.clone(),
+                    };
+
+                    let mut alias = None;
+                    if matches!(self.peek_token().map(|t| t.kind.mem_equal(&TokenKind::As)), Some(true))
+                    {
+                        self.next_token();
+                        let alias_token = self.expect_token(TokenKind::Identifier(Rc::from("")))?;
+                        if let TokenKind::Identifier(alias_name) = &alias_token.kind {
+                            alias = Some(Node {
+                                kind: alias_name.clone(),
+                                span: alias_token.span.clone(),
+                            });
+                        }
+                    }
+
+                    items.push(ItemSpec {
+                        name: item_name,
+                        alias,
+                    });
                 }
-                return Ok(imports);
+                TokenKind::RightBrace => break,
+                TokenKind::NewLine => continue,
+                _ => {
+                    return Err(Diagnostics::parser_error(
+                        format!("expected item, found {:?}", &token.kind),
+                        token.span.clone(),
+                    ));
+                }
             }
 
-            self.next_token();
+            match self.peek_token() {
+                Some(token) => match &token.kind {
+                    TokenKind::Comma => {
+                        self.next_token();
+                    }
+                    TokenKind::RightBrace => {
+                        self.next_token();
+                        break;
+                    }
+                    _ => {
+                        return Err(Diagnostics::parser_error(
+                            format!("expected ',' or '}}', found {:?}", &token.kind),
+                            token.span.clone(),
+                        ));
+                    }
+                },
+                None => {
+                    return Err(Diagnostics::parser_error(
+                        "expected ',' or '}', found EOF".to_string(),
+                        Span {
+                            start: 0,
+                            end: self.source.len(),
+                        },
+                    ));
+                }
+            }
+        }
 
-            let Some(route_token) = self.next_token() else {
+        Ok(items)
+    }
+
+    fn parse_path(&mut self) -> Result<(ModulePath, PathSelector), Diagnostics> {
+        let mut segments: Vec<Node<Rc<str>>> = Vec::new();
+        let mut selector = PathSelector::None;
+
+        let start = self.peek_token().map(|t| t.span.start).unwrap_or(0);
+        let mut end = start;
+
+        loop {
+            let Some(token) = self.next_token() else {
                 return Err(Diagnostics::parser_error(
-                    "expected route, found EOF".to_string(),
+                    "expected path segment, found EOF".to_string(),
                     Span {
                         start,
                         end: self.source.len(),
@@ -579,33 +729,223 @@ impl<'a> Parser<'a> {
                 ));
             };
 
-            match &route_token.kind {
-                TokenKind::String(path) => imports.push(Import::Path(path.clone())),
+            match &token.kind {
+                TokenKind::Identifier(name) => {
+                    end = token.span.end;
+                    segments.push(Node {
+                        kind: name.clone(),
+                        span: token.span.clone(),
+                    });
+                }
+                TokenKind::Symbol(symbol) if symbol.as_ref() == "*" => {
+                    end = token.span.end;
+                    selector = PathSelector::Glob;
+                    break;
+                }
+                TokenKind::LeftBrace => {
+                    self.token_index -= 1;
+                    let items = self.parse_item_list()?;
+                    selector = PathSelector::Items(items);
+                    break;
+                }
                 _ => {
                     return Err(Diagnostics::parser_error(
-                        format!("expected route, found {:?}", &route_token.kind),
-                        route_token.span.clone(),
+                        format!("expected path segment, found {:?}", &token.kind),
+                        token.span.clone(),
                     ));
                 }
             }
+
+            match self.peek_token() {
+                Some(token) if token.kind.mem_equal(&TokenKind::PathSep) => {
+                    self.next_token();
+                }
+                _ => break,
+            }
         }
+
+        if segments.is_empty() {
+            return Err(Diagnostics::parser_error(
+                "expected path segment".to_string(),
+                Span { start, end },
+            ));
+        }
+
+        let anchor = match segments[0].kind.as_ref() {
+            "self" => {
+                segments.remove(0);
+                PathAnchor::SelfMod
+            }
+            "pkg" => {
+                segments.remove(0);
+                PathAnchor::Pkg
+            }
+            "super" => {
+                let mut count = 0;
+                while !segments.is_empty() && segments[0].kind.as_ref() == "super" {
+                    segments.remove(0);
+                    count += 1;
+                }
+                PathAnchor::Super(count)
+            }
+            _ => PathAnchor::Plain,
+        };
+
+        Ok((
+            ModulePath {
+                anchor,
+                segments,
+                span: Span { start, end },
+            },
+            selector,
+        ))
+    }
+
+    fn parse_extern(&mut self) -> Result<Extern, Diagnostics> {
+        let keyword = self.expect_token(TokenKind::Extern)?;
+        let name_token = self.expect_token(TokenKind::Identifier(Rc::from("")))?;
+        let TokenKind::Identifier(name) = &name_token.kind else {
+            unreachable!()
+        };
+
+        Ok(Extern {
+            name: Node {
+                kind: name.clone(),
+                span: name_token.span.clone(),
+            },
+            span: Span {
+                start: keyword.span.start,
+                end: name_token.span.end,
+            },
+        })
+    }
+
+    fn parse_import(&mut self) -> Result<Import, Diagnostics> {
+        let keyword = self.expect_token(TokenKind::Import)?;
+        let (path, selector) = self.parse_path()?;
+        let mut end = path.span.end;
+
+        let target = match selector {
+            PathSelector::None => ImportTarget::Module,
+            PathSelector::Glob => ImportTarget::Glob,
+            PathSelector::Items(items) => ImportTarget::Items(items),
+        };
+
+        let mut alias = None;
+        if matches!(self.peek_token().map(|t| t.kind.mem_equal(&TokenKind::As)), Some(true)) {
+            self.next_token();
+            let alias_token = self.expect_token(TokenKind::Identifier(Rc::from("")))?;
+            if let TokenKind::Identifier(name) = &alias_token.kind {
+                end = alias_token.span.end;
+                alias = Some(Node {
+                    kind: name.clone(),
+                    span: alias_token.span.clone(),
+                });
+            }
+        }
+
+        Ok(Import {
+            path,
+            target,
+            alias,
+            span: Span {
+                start: keyword.span.start,
+                end,
+            },
+        })
+    }
+
+    fn parse_export(&mut self) -> Result<Export, Diagnostics> {
+        let keyword = self.expect_token(TokenKind::Export)?;
+
+        if matches!(self.peek_token().map(|t| t.kind.mem_equal(&TokenKind::LeftBrace)), Some(true))
+        {
+            let items = self.parse_item_list()?;
+            let end = items
+                .last()
+                .map(|item| {
+                    item.alias
+                        .as_ref()
+                        .map(|a| a.span.end)
+                        .unwrap_or(item.name.span.end)
+                })
+                .unwrap_or(keyword.span.end);
+            return Ok(Export {
+                item: ExportItem::Local(items),
+                span: Span {
+                    start: keyword.span.start,
+                    end,
+                },
+            });
+        }
+
+        if let Some(token) = self.peek_token() {
+            if let TokenKind::Symbol(symbol) = &token.kind {
+                if symbol.as_ref() == "*" {
+                    self.next_token();
+                    return Ok(Export {
+                        item: ExportItem::LocalGlob,
+                        span: Span {
+                            start: keyword.span.start,
+                            end: token.span.end,
+                        },
+                    });
+                }
+            }
+        }
+
+        let (mut path, selector) = self.parse_path()?;
+        let end = path.span.end;
+        let item = match selector {
+            PathSelector::Glob => ExportItem::FromGlob(path),
+            PathSelector::Items(items) => ExportItem::FromItems(path, items),
+            PathSelector::None => {
+                if matches!(path.anchor, PathAnchor::Plain) && path.segments.len() == 1 {
+                    let name = path.segments.pop().unwrap();
+                    ExportItem::Local(vec![ItemSpec { name, alias: None }])
+                } else if path.segments.len() >= 2 {
+                    let name = path.segments.pop().unwrap();
+                    ExportItem::FromItems(path, vec![ItemSpec { name, alias: None }])
+                } else {
+                    return Err(Diagnostics::parser_error(
+                        "invalid export target".to_string(),
+                        path.span.clone(),
+                    ));
+                }
+            }
+        };
+
+        Ok(Export {
+            item,
+            span: Span {
+                start: keyword.span.start,
+                end,
+            },
+        })
     }
 
     pub fn parse(&mut self) -> Result<ParseInfo, Diagnostics> {
-        let imports = self.parse_imports()?;
-
+        let mut externs = Vec::new();
+        let mut imports = Vec::new();
+        let mut exports = Vec::new();
         let mut statements = Vec::new();
 
         while let Some(token) = self.peek_token() {
-            if let TokenKind::NewLine = &token.kind {
-                self.next_token();
-                continue;
+            match &token.kind {
+                TokenKind::NewLine => {
+                    self.next_token();
+                }
+                TokenKind::Extern => externs.push(self.parse_extern()?),
+                TokenKind::Import => imports.push(self.parse_import()?),
+                TokenKind::Export => exports.push(self.parse_export()?),
+                _ => statements.push(self.parse_statement()?),
             }
-            statements.push(self.parse_statement()?);
         }
 
         Ok(ParseInfo {
+            externs,
             imports,
+            exports,
             statements,
         })
     }
