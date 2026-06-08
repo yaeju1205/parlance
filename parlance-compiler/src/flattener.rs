@@ -32,7 +32,7 @@ pub struct Flatten {
     pub bindings: HashMap<Rc<str>, FlattenIndex>,
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Flattener {
     flatten_file: Vec<Rc<FlattenValue>>,
     binding_pool: HashMap<Rc<str>, FlattenIndex>,

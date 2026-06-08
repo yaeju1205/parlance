@@ -6,8 +6,9 @@ pub struct Span {
 
 #[derive(Debug)]
 pub enum Origin {
-    Compiler,
     Parser,
+    Compiler,
+    Runtime,
 }
 
 #[derive(Debug)]
@@ -48,6 +49,15 @@ impl Diagnostics {
             span,
             severity: Severity::Error,
             origin: Origin::Compiler,
+        }
+    }
+
+    pub fn runtime_error(message: String) -> Self {
+        Self {
+            message,
+            span: Span::default(),
+            severity: Severity::Error,
+            origin: Origin::Runtime,
         }
     }
 }

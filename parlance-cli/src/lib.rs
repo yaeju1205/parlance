@@ -3,7 +3,7 @@ use std::{process, time::Instant};
 use clap::Parser;
 use parlance_compiler::{CompileObject, Compiler};
 use parlance_module::Pars;
-use parlance_prelude::{io::print, math::add};
+use parlance_prelude::{ffi::rust_string, io::print, math::add};
 use parlance_vm::VirtualMachine;
 
 #[derive(Parser)]
@@ -26,6 +26,7 @@ fn new_compiler() -> Compiler {
     let mut compiler = Compiler::new();
     compiler.insert_bytecode_function(print());
     compiler.insert_bytecode_function(add());
+    compiler.insert_bytecode_function(rust_string());
     compiler
 }
 
@@ -37,16 +38,19 @@ fn run_object(compile_object: CompileObject, verbose: bool) {
 
     let mut vm = VirtualMachine::new().with_load(build_info);
 
+    let run = |vm: &mut VirtualMachine| unsafe {
+        vm.run().unwrap_or_else(|diagnostic| {
+            eprintln!("{}", diagnostic.to_string());
+            process::exit(1);
+        });
+    };
+
     if verbose {
         let instant = Instant::now();
-        unsafe {
-            vm.run();
-        }
+        run(&mut vm);
         println!("running time: {:?}", instant.elapsed());
     } else {
-        unsafe {
-            vm.run();
-        }
+        run(&mut vm);
     }
 }
 
