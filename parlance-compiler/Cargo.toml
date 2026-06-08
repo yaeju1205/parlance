@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 parlance-diagnostics = { path = "../parlance-diagnostics" }
+parlance-module = { version = "0.1.0", path = "../parlance-module" }
 parlance-parser = { path = "../parlance-parser" }
 parlance-vm = { path = "../parlance-vm" }
 serde = { version = "1.0.228", features = ["derive"] }

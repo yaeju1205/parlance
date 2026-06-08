@@ -15,7 +15,7 @@ members = [
     "parlance-vm",
     "parlance-prelude",
     "parlance-cli"
-]
+, "parlance-module", "astro"]
 
 [dependencies]
 parlance-cli = { path = "parlance-cli" }

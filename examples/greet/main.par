@@ -1,0 +1,3 @@
+import greet_lib::io
+
+main = io::print 1

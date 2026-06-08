@@ -31,8 +31,17 @@ pub fn run() {
             compiler.insert_bytecode_function(print());
             compiler.insert_bytecode_function(add());
 
-            let build_info = compiler
-                .compile_source_file(file)
+            let is_pars = std::path::Path::new(&file)
+                .extension()
+                .is_some_and(|ext| ext == "pars");
+
+            let compile_result = if is_pars {
+                compiler.compile_pars_file(file)
+            } else {
+                compiler.compile_source_file(file)
+            };
+
+            let build_info = compile_result
                 .unwrap_or_else(|diagnostic| {
                     eprintln!("{}", diagnostic.to_string());
                     process::exit(1);

@@ -4,10 +4,12 @@ use parlance_diagnostics::{Diagnostics, Span};
 use parlance_parser::Parser;
 use parlance_vm::{Bytecode, DataPool, Instruction, Operator, VirtualMachineData};
 
+use parlance_module::Pars;
+
 use crate::{
-    desugarer::desugar,
+    desugarer::{DesugarBinding, desugar},
     flattener::{Flatten, FlattenIndex, FlattenValue, FlattenValueKind, Flattener},
-    resolver::resolve_program,
+    resolver::{resolve_pars, resolve_program},
 };
 
 mod desugarer;
@@ -348,6 +350,40 @@ impl Compiler {
             .collect();
 
         let bindings = resolve_program(path.as_ref(), self.externs.clone(), &prelude_names)?;
+        self.compile_bindings(bindings)
+    }
+
+    pub fn compile_pars(self, pars: &Pars) -> Result<CompileObject, Diagnostics> {
+        let prelude_names: Vec<Rc<str>> = self
+            .bytecode_functions
+            .iter()
+            .map(|func| Rc::from(func.name.as_str()))
+            .collect();
+
+        let bindings = resolve_pars(pars, self.externs.clone(), &prelude_names)?;
+        self.compile_bindings(bindings)
+    }
+
+    pub fn compile_pars_file<P: AsRef<Path>>(
+        self,
+        path: P,
+    ) -> Result<CompileObject, Diagnostics> {
+        let bytes = std::fs::read(path.as_ref()).map_err(|err| {
+            Diagnostics::compiler_error(
+                format!("can not read pars {}: {}", path.as_ref().display(), err),
+                Span::default(),
+            )
+        })?;
+        let pars = Pars::from_bytes(&bytes).map_err(|err| {
+            Diagnostics::compiler_error(format!("invalid pars bundle: {err}"), Span::default())
+        })?;
+        self.compile_pars(&pars)
+    }
+
+    fn compile_bindings(
+        self,
+        bindings: Vec<DesugarBinding>,
+    ) -> Result<CompileObject, Diagnostics> {
         let flatten = Rc::new(self.flattner.flatten(bindings)?);
 
         let mut compile_object = CompileObject::new(flatten.clone());

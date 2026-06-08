@@ -1,0 +1,5 @@
+[package]
+name = "greet"
+
+[externs]
+greet_lib = "../std"

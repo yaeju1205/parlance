@@ -36,15 +36,60 @@ impl ModuleSource for FsModuleSource {
     }
 }
 
+fn pars_virtual_path(segments: &[String]) -> PathBuf {
+    let mut path = PathBuf::from("/");
+    for segment in segments {
+        path.push(segment);
+    }
+    path.set_extension("par");
+    path
+}
+
+pub struct ParsModuleSource {
+    files: HashMap<PathBuf, String>,
+}
+
+impl ParsModuleSource {
+    pub fn new(pars: &parlance_module::Pars) -> Result<Self, Diagnostics> {
+        let mut files = HashMap::new();
+        for par in &pars.pars {
+            let virtual_path = pars_virtual_path(&par.module.path);
+            let source = match &par.parable {
+                parlance_module::Parable::Source(source) => source.clone(),
+                parlance_module::Parable::Path(path) => fs::read_to_string(path).map_err(|err| {
+                    Diagnostics::compiler_error(
+                        format!("can not read parable {}: {}", path.display(), err),
+                        Span::default(),
+                    )
+                })?,
+            };
+            files.insert(virtual_path, source);
+        }
+        Ok(Self { files })
+    }
+}
+
+impl ModuleSource for ParsModuleSource {
+    fn canonicalize(&self, path: &Path) -> PathBuf {
+        path.to_path_buf()
+    }
+
+    fn read_to_string(&self, path: &Path) -> Option<String> {
+        self.files.get(path).cloned()
+    }
+
+    fn is_file(&self, path: &Path) -> bool {
+        self.files.contains_key(path)
+    }
+}
+
 #[derive(Deserialize)]
 struct ManifestPackage {
-    #[allow(dead_code)]
     name: String,
 }
 
 #[derive(Deserialize)]
 struct Manifest {
-    #[allow(dead_code)]
     package: ManifestPackage,
     #[serde(default)]
     externs: HashMap<String, String>,
@@ -52,6 +97,7 @@ struct Manifest {
 
 struct Package {
     root: PathBuf,
+    name: Option<Rc<str>>,
     externs: HashMap<Rc<str>, PathBuf>,
 }
 
@@ -81,6 +127,7 @@ struct Module {
     base_names: HashMap<Rc<str>, Rc<str>>,
     names: HashMap<Rc<str>, Rc<str>>,
     module_aliases: HashMap<Rc<str>, usize>,
+    prelude_exports: Vec<(Rc<str>, Rc<str>)>,
     exports: HashMap<Rc<str>, Rc<str>>,
 }
 
@@ -91,6 +138,7 @@ pub struct Resolver<'s> {
     path_to_module: HashMap<PathBuf, usize>,
     root_to_package: HashMap<PathBuf, usize>,
     injected_externs: HashMap<Rc<str>, PathBuf>,
+    prelude_set: HashSet<Rc<str>>,
 }
 
 fn local_name(item: &ItemSpec) -> Rc<str> {
@@ -109,7 +157,11 @@ fn statement_name(stat: &Statement) -> Rc<str> {
 }
 
 impl<'s> Resolver<'s> {
-    fn new(source: &'s dyn ModuleSource, injected_externs: HashMap<Rc<str>, PathBuf>) -> Self {
+    fn new(
+        source: &'s dyn ModuleSource,
+        injected_externs: HashMap<Rc<str>, PathBuf>,
+        prelude_set: HashSet<Rc<str>>,
+    ) -> Self {
         Self {
             source,
             packages: Vec::new(),
@@ -117,6 +169,7 @@ impl<'s> Resolver<'s> {
             path_to_module: HashMap::new(),
             root_to_package: HashMap::new(),
             injected_externs,
+            prelude_set,
         }
     }
 
@@ -141,6 +194,7 @@ impl<'s> Resolver<'s> {
         }
 
         let mut externs: HashMap<Rc<str>, PathBuf> = HashMap::new();
+        let mut name: Option<Rc<str>> = None;
 
         let manifest_path = root.join("parlance.toml");
         if self.source.is_file(&manifest_path) {
@@ -157,6 +211,8 @@ impl<'s> Resolver<'s> {
                 )
             })?;
 
+            name = Some(Rc::from(manifest.package.name.as_str()));
+
             for (name, rel) in manifest.externs {
                 externs.insert(
                     Rc::from(name.as_str()),
@@ -172,6 +228,7 @@ impl<'s> Resolver<'s> {
         let idx = self.packages.len();
         self.packages.push(Package {
             root: root.clone(),
+            name,
             externs,
         });
         self.root_to_package.insert(root, idx);
@@ -230,10 +287,94 @@ impl<'s> Resolver<'s> {
             base_names: HashMap::new(),
             names: HashMap::new(),
             module_aliases: HashMap::new(),
+            prelude_exports: Vec::new(),
             exports: HashMap::new(),
         });
         self.path_to_module.insert(file, idx);
         Ok(idx)
+    }
+
+    fn is_prelude_path(path: &ModulePath) -> bool {
+        matches!(path.anchor, PathAnchor::Plain)
+            && path
+                .segments
+                .first()
+                .map(|seg| seg.kind.as_ref() == "prelude")
+                .unwrap_or(false)
+    }
+
+    fn prelude_prefix(path: &ModulePath) -> String {
+        let mut prefix = String::new();
+        for (index, seg) in path.segments.iter().enumerate() {
+            if index > 0 {
+                prefix.push_str("::");
+            }
+            prefix.push_str(&seg.kind);
+        }
+        prefix
+    }
+
+    fn prelude_item(
+        &self,
+        prefix: &str,
+        item: &ItemSpec,
+    ) -> Result<(Rc<str>, Rc<str>), Diagnostics> {
+        let canonical: Rc<str> = Rc::from(format!("{prefix}::{}", item.name.kind).as_str());
+        if !self.prelude_set.contains(&canonical) {
+            return Err(Diagnostics::compiler_error(
+                format!("'{canonical}' is not a prelude item"),
+                item.name.span.clone(),
+            ));
+        }
+        Ok((local_name(item), canonical))
+    }
+
+    fn prelude_glob(&self, prefix: &str) -> Vec<(Rc<str>, Rc<str>)> {
+        let needle = format!("{prefix}::");
+        let mut out = Vec::new();
+        for name in &self.prelude_set {
+            if let Some(rest) = name.strip_prefix(&needle) {
+                if !rest.contains("::") {
+                    out.push((Rc::from(rest), name.clone()));
+                }
+            }
+        }
+        out
+    }
+
+    fn resolve_prelude_import(
+        &self,
+        import: &parlance_parser::Import,
+    ) -> Result<Vec<(Rc<str>, Rc<str>)>, Diagnostics> {
+        let prefix = Self::prelude_prefix(&import.path);
+        match &import.target {
+            ImportTarget::Items(items) => items
+                .iter()
+                .map(|item| self.prelude_item(&prefix, item))
+                .collect(),
+            ImportTarget::Glob => Ok(self.prelude_glob(&prefix)),
+            ImportTarget::Module => {
+                let canonical: Rc<str> = Rc::from(prefix.as_str());
+                if !self.prelude_set.contains(&canonical) {
+                    return Err(Diagnostics::compiler_error(
+                        format!("'{canonical}' is not a prelude item"),
+                        import.path.span.clone(),
+                    ));
+                }
+                let alias = import
+                    .alias
+                    .as_ref()
+                    .map(|node| node.kind.clone())
+                    .or_else(|| import.path.segments.last().map(|node| node.kind.clone()))
+                    .ok_or_else(|| {
+                        Diagnostics::compiler_error(
+                            "import path has no prelude segment".to_string(),
+                            import.span.clone(),
+                        )
+                    })?;
+                Ok(vec![(alias, canonical)])
+            }
+        }
     }
 
     fn resolve_module_path(
@@ -264,6 +405,30 @@ impl<'s> Resolver<'s> {
                         self.packages[module_package].externs.get(&head.kind).cloned()
                     {
                         let pkg = self.ensure_package(&extern_root)?;
+                        match &self.packages[pkg].name {
+                            Some(name) if *name == head.kind => {}
+                            Some(name) => {
+                                return Err(Diagnostics::compiler_error(
+                                    format!(
+                                        "extern '{}' points at a package named '{}'; \
+                                         the import name must match the package name",
+                                        head.kind, name
+                                    ),
+                                    head.span.clone(),
+                                ));
+                            }
+                            None => {
+                                return Err(Diagnostics::compiler_error(
+                                    format!(
+                                        "extern '{}' points at '{}' which has no \
+                                         '[package] name' in parlance.toml",
+                                        head.kind,
+                                        extern_root.display()
+                                    ),
+                                    head.span.clone(),
+                                ));
+                            }
+                        }
                         (self.packages[pkg].root.clone(), pkg, &path.segments[1..])
                     } else {
                         (module_dir.clone(), module_package, &path.segments[..])
@@ -309,6 +474,9 @@ impl<'s> Resolver<'s> {
                 .collect();
 
             for path in import_paths.iter().chain(export_paths.iter()) {
+                if Self::is_prelude_path(path) {
+                    continue;
+                }
                 self.resolve_module_path(index, path)?;
             }
 
@@ -326,7 +494,7 @@ impl<'s> Resolver<'s> {
         }
     }
 
-    fn resolve_specs(&mut self, prelude_names: &[Rc<str>]) -> Result<(), Diagnostics> {
+    fn resolve_specs(&mut self) -> Result<(), Diagnostics> {
         for index in 0..self.modules.len() {
             let imports_ast: Vec<parlance_parser::Import> =
                 std::mem::take(&mut self.modules[index].imports);
@@ -334,8 +502,14 @@ impl<'s> Resolver<'s> {
 
             let mut resolved_imports = Vec::new();
             let mut module_aliases = HashMap::new();
+            let mut prelude_imports: Vec<(Rc<str>, Rc<str>)> = Vec::new();
+            let mut prelude_exports: Vec<(Rc<str>, Rc<str>)> = Vec::new();
 
             for import in &imports_ast {
+                if Self::is_prelude_path(&import.path) {
+                    prelude_imports.extend(self.resolve_prelude_import(import)?);
+                    continue;
+                }
                 let target = self.resolve_module_path(index, &import.path)?;
                 match &import.target {
                     ImportTarget::Module => {
@@ -374,10 +548,21 @@ impl<'s> Resolver<'s> {
                         resolved_exports.push(ResolvedExport::LocalGlob);
                     }
                     ExportItem::FromGlob(path) => {
+                        if Self::is_prelude_path(path) {
+                            prelude_exports.extend(self.prelude_glob(&Self::prelude_prefix(path)));
+                            continue;
+                        }
                         let target = self.resolve_module_path(index, path)?;
                         resolved_exports.push(ResolvedExport::FromGlob { target });
                     }
                     ExportItem::FromItems(path, items) => {
+                        if Self::is_prelude_path(path) {
+                            let prefix = Self::prelude_prefix(path);
+                            for item in items {
+                                prelude_exports.push(self.prelude_item(&prefix, item)?);
+                            }
+                            continue;
+                        }
                         let target = self.resolve_module_path(index, path)?;
                         resolved_exports.push(ResolvedExport::FromItems {
                             target,
@@ -388,16 +573,22 @@ impl<'s> Resolver<'s> {
             }
 
             let mut base_names = self.modules[index].own.clone();
-            for name in prelude_names {
+            for name in &self.prelude_set {
                 base_names
                     .entry(name.clone())
                     .or_insert_with(|| name.clone());
+            }
+            for (local, canonical) in &prelude_imports {
+                base_names
+                    .entry(local.clone())
+                    .or_insert_with(|| canonical.clone());
             }
 
             self.modules[index].resolved_imports = resolved_imports;
             self.modules[index].resolved_exports = resolved_exports;
             self.modules[index].module_aliases = module_aliases;
             self.modules[index].base_names = base_names;
+            self.modules[index].prelude_exports = prelude_exports;
         }
         Ok(())
     }
@@ -414,6 +605,13 @@ impl<'s> Resolver<'s> {
                     if let Some(canonical) = self.modules[index].own.get(name) {
                         exports.insert(name.clone(), canonical.clone());
                     }
+                }
+
+                for (local, canonical) in &self.modules[index].prelude_exports {
+                    names
+                        .entry(local.clone())
+                        .or_insert_with(|| canonical.clone());
+                    exports.insert(local.clone(), canonical.clone());
                 }
 
                 for import in &self.modules[index].resolved_imports {
@@ -669,13 +867,30 @@ pub fn resolve_program(
     resolve_program_with_source(&FsModuleSource, entry, injected_externs, prelude_names)
 }
 
+pub fn resolve_pars(
+    pars: &parlance_module::Pars,
+    injected_externs: HashMap<Rc<str>, PathBuf>,
+    prelude_names: &[Rc<str>],
+) -> Result<Vec<DesugarBinding>, Diagnostics> {
+    let entry_par = pars.pars.get(pars.entry).ok_or_else(|| {
+        Diagnostics::compiler_error(
+            format!("pars entry index {} is out of range", pars.entry),
+            Span::default(),
+        )
+    })?;
+    let entry = pars_virtual_path(&entry_par.module.path);
+    let source = ParsModuleSource::new(pars)?;
+    resolve_program_with_source(&source, &entry, injected_externs, prelude_names)
+}
+
 pub fn resolve_program_with_source(
     source: &dyn ModuleSource,
     entry: &Path,
     injected_externs: HashMap<Rc<str>, PathBuf>,
     prelude_names: &[Rc<str>],
 ) -> Result<Vec<DesugarBinding>, Diagnostics> {
-    let mut resolver = Resolver::new(source, injected_externs);
+    let prelude_set: HashSet<Rc<str>> = prelude_names.iter().cloned().collect();
+    let mut resolver = Resolver::new(source, injected_externs, prelude_set);
 
     let entry_dir = entry.parent().unwrap_or(Path::new("."));
     let root = resolver
@@ -687,7 +902,7 @@ pub fn resolve_program_with_source(
     resolver.load_closure()?;
 
     resolver.compute_own();
-    resolver.resolve_specs(prelude_names)?;
+    resolver.resolve_specs()?;
     resolver.compute_scopes();
     resolver.validate()?;
 
@@ -763,6 +978,41 @@ mod tests {
     }
 
     #[test]
+    fn resolves_a_pars_bundle() {
+        use parlance_module::{Module, Par, Parable, Pars};
+
+        let pars = Pars {
+            pars: vec![
+                Par {
+                    module: Module {
+                        path: vec!["main".to_string()],
+                    },
+                    parable: Parable::Source(
+                        "import pkg::util::io::{answer}\nmain = answer\n".to_string(),
+                    ),
+                },
+                Par {
+                    module: Module {
+                        path: vec!["util".to_string(), "io".to_string()],
+                    },
+                    parable: Parable::Source("public answer = 42\n".to_string()),
+                },
+            ],
+            entry: 0,
+        };
+
+        let bindings =
+            resolve_pars(&pars, HashMap::new(), &[]).expect("pars bundle should resolve");
+
+        let names = names(&bindings);
+        assert!(names.iter().any(|n| n == "main"), "entry keeps bare name");
+        assert!(
+            names.iter().any(|n| n.ends_with("::answer")),
+            "imported binding gets a canonical module-prefixed name: {names:?}"
+        );
+    }
+
+    #[test]
     fn export_star_reexports_imported_symbols() {
         let source = MemorySource::with(&[
             ("/app/parlance.toml", "[package]\nname = \"app\"\n"),
@@ -822,6 +1072,128 @@ mod tests {
             &[],
         );
         assert!(err.is_err(), "the original source name must not be bound");
+    }
+
+    #[test]
+    fn reexport_prelude_via_local() {
+        let source = MemorySource::with(&[
+            ("/app/parlance.toml", "[package]\nname = \"app\"\n"),
+            ("/app/main.par", "import pkg::bridge::{builtin}\nmain = builtin\n"),
+            ("/app/bridge.par", "export { builtin }\n"),
+        ]);
+
+        let result = resolve_program_with_source(
+            &source,
+            Path::new("/app/main.par"),
+            HashMap::new(),
+            &[Rc::from("builtin")],
+        );
+
+        assert!(result.is_ok(), "re-export of prelude should succeed: {result:?}");
+    }
+
+    #[test]
+    fn reexport_prelude_via_glob() {
+        let source = MemorySource::with(&[
+            ("/app/parlance.toml", "[package]\nname = \"app\"\n"),
+            ("/app/main.par", "import pkg::bridge::{builtin}\nmain = builtin\n"),
+            ("/app/bridge.par", "export *\n"),
+        ]);
+
+        let result = resolve_program_with_source(
+            &source,
+            Path::new("/app/main.par"),
+            HashMap::new(),
+            &[Rc::from("builtin")],
+        );
+
+        assert!(result.is_ok(), "export * should re-export prelude: {result:?}");
+    }
+
+    #[test]
+    fn reexport_prelude_chained_fromitems() {
+        let source = MemorySource::with(&[
+            ("/app/parlance.toml", "[package]\nname = \"app\"\n"),
+            ("/app/main.par", "import pkg::bridge::{builtin}\nmain = builtin\n"),
+            ("/app/bridge.par", "export pkg::leaf::{builtin}\n"),
+            ("/app/leaf.par", "export { builtin }\n"),
+        ]);
+
+        let result = resolve_program_with_source(
+            &source,
+            Path::new("/app/main.par"),
+            HashMap::new(),
+            &[Rc::from("builtin")],
+        );
+
+        assert!(result.is_ok(), "chained re-export of prelude should succeed: {result:?}");
+    }
+
+    #[test]
+    fn reexport_prelude_cross_package() {
+        let source = MemorySource::with(&[
+            ("/app/parlance.toml", "[package]\nname = \"app\"\n[externs]\nstd = \"/std\"\n"),
+            ("/app/main.par", "import std::prelude::{builtin}\nmain = builtin\n"),
+            ("/std/parlance.toml", "[package]\nname = \"std\"\n"),
+            ("/std/prelude.par", "export { builtin }\n"),
+        ]);
+
+        let result = resolve_program_with_source(
+            &source,
+            Path::new("/app/main.par"),
+            HashMap::new(),
+            &[Rc::from("builtin")],
+        );
+
+        assert!(result.is_ok(), "std re-exporting a prelude builtin should succeed: {result:?}");
+    }
+
+    #[test]
+    fn reexport_qualified_prelude_name() {
+        let source = MemorySource::with(&[
+            ("/app/parlance.toml", "[package]\nname = \"app\"\n"),
+            ("/app/main.par", "import pkg::io::{print}\nmain = print 1\n"),
+            ("/app/io.par", "export prelude::io::print\n"),
+        ]);
+
+        let result = resolve_program_with_source(
+            &source,
+            Path::new("/app/main.par"),
+            HashMap::new(),
+            &[Rc::from("prelude::io::print")],
+        );
+
+        assert!(
+            result.is_ok(),
+            "re-export of a qualified prelude name should succeed: {result:?}"
+        );
+    }
+
+    #[test]
+    fn extern_import_name_must_match_package_name() {
+        let matching = MemorySource::with(&[
+            ("/app/parlance.toml", "[package]\nname = \"app\"\n[externs]\nbar = \"/foo\"\n"),
+            ("/app/main.par", "import bar::io::{answer}\nmain = answer\n"),
+            ("/foo/parlance.toml", "[package]\nname = \"bar\"\n"),
+            ("/foo/io.par", "public answer = 1\n"),
+        ]);
+        assert!(
+            resolve_program_with_source(&matching, Path::new("/app/main.par"), HashMap::new(), &[])
+                .is_ok(),
+            "import name matching the package name should resolve"
+        );
+
+        let mismatched = MemorySource::with(&[
+            ("/app/parlance.toml", "[package]\nname = \"app\"\n[externs]\nbar = \"/foo\"\n"),
+            ("/app/main.par", "import bar::io::{answer}\nmain = answer\n"),
+            ("/foo/parlance.toml", "[package]\nname = \"foo\"\n"),
+            ("/foo/io.par", "public answer = 1\n"),
+        ]);
+        assert!(
+            resolve_program_with_source(&mismatched, Path::new("/app/main.par"), HashMap::new(), &[])
+                .is_err(),
+            "import name not matching the package name must error"
+        );
     }
 
     #[test]
