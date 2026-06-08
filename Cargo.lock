@@ -315,6 +315,9 @@ dependencies = [
 [[package]]
 name = "parlance-vm"
 version = "0.1.0"
+dependencies = [
+ "parlance-diagnostics",
+]
 
 [[package]]
 name = "pin-project-lite"

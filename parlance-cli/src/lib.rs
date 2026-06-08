@@ -2,7 +2,7 @@ use std::{process, time::Instant};
 
 use clap::Parser;
 use parlance_compiler::Compiler;
-use parlance_prelude::{io::print, math::add};
+use parlance_prelude::{ffi::rust_string, io::print, math::add};
 use parlance_vm::VirtualMachine;
 
 #[derive(Parser)]
@@ -30,6 +30,7 @@ pub fn run() {
 
             compiler.insert_bytecode_function(print());
             compiler.insert_bytecode_function(add());
+            compiler.insert_bytecode_function(rust_string());
 
             let is_pars = std::path::Path::new(&file)
                 .extension()
@@ -57,12 +58,18 @@ pub fn run() {
             if cli.verbose {
                 let instant = Instant::now();
                 unsafe {
-                    vm.run();
+                    vm.run().unwrap_or_else(|diagnostic| {
+                        eprintln!("{}", diagnostic.to_string());
+                        process::exit(1);
+                    });
                 }
                 println!("running time: {:?}", instant.elapsed());
             } else {
                 unsafe {
-                    vm.run();
+                    vm.run().unwrap_or_else(|diagnostic| {
+                        eprintln!("{}", diagnostic.to_string());
+                        process::exit(1);
+                    });
                 }
             }
         }

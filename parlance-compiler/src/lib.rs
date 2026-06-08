@@ -1,4 +1,8 @@
-use std::{collections::HashMap, path::{Path, PathBuf}, rc::Rc};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    rc::Rc,
+};
 
 use parlance_diagnostics::{Diagnostics, Span};
 use parlance_parser::Parser;
@@ -217,7 +221,7 @@ impl CompileObject {
                 } else {
                     let idx = self.data_pool.len() as u32;
                     self.data_pool
-                        .push(VirtualMachineData::StrPtr(str_value.as_str()));
+                        .push(VirtualMachineData::StrPtr(Rc::from(str_value.as_ref())));
                     self.string_cache.insert(str_value.clone(), idx);
                     idx
                 };
@@ -364,10 +368,7 @@ impl Compiler {
         self.compile_bindings(bindings)
     }
 
-    pub fn compile_pars_file<P: AsRef<Path>>(
-        self,
-        path: P,
-    ) -> Result<CompileObject, Diagnostics> {
+    pub fn compile_pars_file<P: AsRef<Path>>(self, path: P) -> Result<CompileObject, Diagnostics> {
         let bytes = std::fs::read(path.as_ref()).map_err(|err| {
             Diagnostics::compiler_error(
                 format!("can not read pars {}: {}", path.as_ref().display(), err),
@@ -380,10 +381,7 @@ impl Compiler {
         self.compile_pars(&pars)
     }
 
-    fn compile_bindings(
-        self,
-        bindings: Vec<DesugarBinding>,
-    ) -> Result<CompileObject, Diagnostics> {
+    fn compile_bindings(self, bindings: Vec<DesugarBinding>) -> Result<CompileObject, Diagnostics> {
         let flatten = Rc::new(self.flattner.flatten(bindings)?);
 
         let mut compile_object = CompileObject::new(flatten.clone());

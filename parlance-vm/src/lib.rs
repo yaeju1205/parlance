@@ -1,3 +1,17 @@
+use std::{fmt, rc::Rc};
+
+use parlance_diagnostics::Diagnostics;
+
+pub trait RustCallFunction {
+    fn call(&self, arg: VirtualMachineData) -> Result<VirtualMachineData, Diagnostics>;
+}
+
+impl fmt::Debug for dyn RustCallFunction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("rust native function")
+    }
+}
+
 #[repr(u8)]
 #[derive(Debug)]
 pub enum Operator {
@@ -14,7 +28,10 @@ pub enum Operator {
     SubInt,
     MulInt,
     DivInt,
-    Print,
+
+    RustCall,
+    RustLoadFnPtr(fn(VirtualMachineData) -> Result<VirtualMachineData, Diagnostics>),
+    RustLoadFnTrait(Rc<dyn RustCallFunction>),
 }
 
 #[derive(Debug)]
@@ -31,9 +48,13 @@ pub type DataPool = Vec<VirtualMachineData>;
 #[derive(Debug, Clone)]
 pub enum VirtualMachineData {
     Int(i32),
-    StrPtr(*const str),
+    StrPtr(Rc<str>),
     FuncPtr { pc: u32, param_register: u32 },
     None,
+
+    RustString(String),
+    RustFnPtr(fn(VirtualMachineData) -> Result<VirtualMachineData, Diagnostics>),
+    RustFnTrait(Rc<dyn RustCallFunction>),
 }
 
 struct FrameInfo {
@@ -74,14 +95,14 @@ impl VirtualMachine {
     }
 
     #[inline(always)]
-    pub unsafe fn run(&mut self) {
+    pub unsafe fn run(&mut self) -> Result<(), Diagnostics> {
         let mut pc = self.pc;
 
         let code_len = self.bytecode.len();
 
         while (pc as usize) < code_len {
             let inst = unsafe { self.bytecode.get_unchecked(pc as usize) };
-            match inst.operator {
+            match &inst.operator {
                 Operator::Goto => {
                     pc = inst.a;
                     continue;
@@ -133,7 +154,12 @@ impl VirtualMachine {
                                     self.register_file.get_unchecked(inst.c as usize).clone();
                                 pc = target_pc;
                             }
-                            _ => std::hint::unreachable_unchecked(),
+                            _ => {
+                                return Err(Diagnostics::runtime_error(format!(
+                                    "register {} is not function pointer",
+                                    inst.b
+                                )));
+                            }
                         }
                     };
 
@@ -153,7 +179,12 @@ impl VirtualMachine {
 
                                 pc = target_pc;
                             }
-                            _ => std::hint::unreachable_unchecked(),
+                            _ => {
+                                return Err(Diagnostics::runtime_error(format!(
+                                    "register {} is not function pointer",
+                                    inst.b
+                                )));
+                            }
                         }
                     };
                     continue;
@@ -249,15 +280,37 @@ impl VirtualMachine {
                             VirtualMachineData::Int(l_val / r_val);
                     }
                 }
-                Operator::Print => unsafe {
-                    println!(
-                        "parlance print > {:?}",
-                        self.register_file.get_unchecked_mut(inst.a as usize)
-                    );
+                Operator::RustCall => unsafe {
+                    match &self.register_file[inst.b as usize] {
+                        VirtualMachineData::RustFnPtr(f) => {
+                            *self.register_file.get_unchecked_mut(inst.a as usize) =
+                                f(self.register_file.get_unchecked(inst.c as usize).clone())?;
+                        }
+                        VirtualMachineData::RustFnTrait(nf) => {
+                            *self.register_file.get_unchecked_mut(inst.a as usize) =
+                                nf.call(self.register_file.get_unchecked(inst.c as usize).clone())?;
+                        }
+                        _ => {
+                            return Err(Diagnostics::runtime_error(format!(
+                                "register {} is not rust function",
+                                inst.b
+                            )));
+                        }
+                    }
+                },
+                Operator::RustLoadFnPtr(f) => unsafe {
+                    *self.register_file.get_unchecked_mut(inst.a as usize) =
+                        VirtualMachineData::RustFnPtr(f.clone())
+                },
+                Operator::RustLoadFnTrait(nf) => unsafe {
+                    *self.register_file.get_unchecked_mut(inst.a as usize) =
+                        VirtualMachineData::RustFnTrait(nf.clone())
                 },
             }
 
             pc += 1;
         }
+
+        Ok(())
     }
 }
