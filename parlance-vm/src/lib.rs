@@ -33,12 +33,12 @@ pub enum Opcode {
 pub type InstructionSize = u64;
 
 #[repr(transparent)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 pub struct Instruction(InstructionSize);
 
 impl Instruction {
     #[inline(always)]
-    pub fn opcode(self) -> Opcode {
+    pub fn opcode(&self) -> Opcode {
         unsafe { std::mem::transmute((self.0 & 0xff) as u8) }
     }
 
@@ -207,7 +207,7 @@ impl VirtualMachine {
         let mut pc = self.pc;
 
         while self.bytecode.len() > pc as usize {
-            let inst = self.bytecode[pc as usize];
+            let inst = &self.bytecode[pc as usize];
 
             match inst.opcode() {
                 Opcode::Goto => {
