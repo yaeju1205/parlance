@@ -1,9 +1,10 @@
-use std::{fmt, rc::Rc};
+use std::{fmt, ops, rc::Rc};
 
-use parlance_diagnostics::Diagnostics;
+pub type Register = u16;
+pub type ProgramCount = u32; // u24
 
 pub trait RustCallFunction {
-    fn call(&self, arg: VirtualMachineData) -> Result<VirtualMachineData, Diagnostics>;
+    fn call(&self, arg: VirtualMachineData) -> VirtualMachineData;
 }
 
 impl fmt::Debug for dyn RustCallFunction {
@@ -14,7 +15,7 @@ impl fmt::Debug for dyn RustCallFunction {
 
 #[repr(u8)]
 #[derive(Debug)]
-pub enum Operator {
+pub enum Opcode {
     Goto,
     Mov,
     Ret,
@@ -25,21 +26,116 @@ pub enum Operator {
     LoadInt,
     LoadStr,
     AddInt,
-    SubInt,
-    MulInt,
-    DivInt,
 
     RustCall,
-    RustLoadFnPtr(fn(VirtualMachineData) -> Result<VirtualMachineData, Diagnostics>),
-    RustLoadFnTrait(Rc<dyn RustCallFunction>),
 }
 
-#[derive(Debug)]
-pub struct Instruction {
-    pub operator: Operator,
-    pub a: u32,
-    pub b: u32,
-    pub c: u32,
+pub type InstructionSize = u64;
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy)]
+pub struct Instruction(InstructionSize);
+
+impl Instruction {
+    #[inline(always)]
+    pub fn opcode(self) -> Opcode {
+        unsafe { std::mem::transmute((self.0 & 0xff) as u8) }
+    }
+
+    #[inline(always)]
+    pub fn goto(pc: ProgramCount) -> Self {
+        Self((Opcode::Goto as InstructionSize) | ((pc as InstructionSize) << 8))
+    }
+
+    #[inline(always)]
+    pub fn mov(dest: Register, src: Register) -> Self {
+        Self(
+            (Opcode::Mov as InstructionSize)
+                | ((dest as InstructionSize) << 8)
+                | ((src as InstructionSize) << 24),
+        )
+    }
+
+    #[inline(always)]
+    pub fn ret(src: Register) -> Self {
+        Self((Opcode::Ret as InstructionSize) | ((src as InstructionSize) << 8))
+    }
+
+    #[inline(always)]
+    pub fn call(dest: Register, pc: ProgramCount) -> Self {
+        Self(
+            (Opcode::Call as InstructionSize)
+                | ((dest as InstructionSize) << 8)
+                | ((pc as InstructionSize) << 24),
+        )
+    }
+
+    #[inline(always)]
+    pub fn call_reg(dest: Register, func: Register, arg: Register) -> Self {
+        Self(
+            (Opcode::CallReg as InstructionSize)
+                | ((dest as InstructionSize) << 8)
+                | ((func as InstructionSize) << 24)
+                | ((arg as InstructionSize) << 40),
+        )
+    }
+
+    #[inline(always)]
+    pub fn tail_call_reg(func: Register, arg: Register) -> Self {
+        Self(
+            (Opcode::TailCallReg as InstructionSize)
+                | ((func as InstructionSize) << 8)
+                | ((arg as InstructionSize) << 24),
+        )
+    }
+
+    #[inline(always)]
+    pub fn load_func(dest: Register, pc: ProgramCount, param: Register) -> Self {
+        Self(
+            (Opcode::LoadFunc as InstructionSize)
+                | ((dest as InstructionSize) << 8)
+                | ((pc as InstructionSize) << 24)
+                | ((param as InstructionSize) << 48),
+        )
+    }
+
+    #[inline(always)]
+    pub fn load_int(dest: Register, value: i32) -> Self {
+        Self(
+            (Opcode::LoadInt as InstructionSize)
+                | ((dest as InstructionSize) << 8)
+                | (((value as u32) as InstructionSize) << 24),
+        )
+    }
+
+    #[inline(always)]
+    pub fn load_str(dest: Register, pool_index: usize) -> Self {
+        Self(
+            (Opcode::LoadStr as InstructionSize)
+                | ((dest as InstructionSize) << 8)
+                | ((pool_index as InstructionSize) << 24),
+        )
+    }
+
+    #[inline(always)]
+    pub fn add_int(dest: Register, lhs: Register, rhs: Register) -> Self {
+        Self(
+            (Opcode::AddInt as InstructionSize)
+                | ((dest as InstructionSize) << 8)
+                | ((lhs as InstructionSize) << 24)
+                | ((rhs as InstructionSize) << 40),
+        )
+    }
+
+    #[inline(always)]
+    pub fn rust_call(dest: Register, func: usize, arg: Register) -> Self {
+        Self(
+            (Opcode::RustCall as InstructionSize)
+                | ((dest as InstructionSize) << 8)
+                | ((func as InstructionSize) << 24)
+                | ((arg as InstructionSize) << 48),
+        )
+    }
 }
 
 pub type Bytecode = Vec<Instruction>;
@@ -48,25 +144,44 @@ pub type DataPool = Vec<VirtualMachineData>;
 #[derive(Debug, Clone)]
 pub enum VirtualMachineData {
     Int(i32),
-    StrPtr(Rc<str>),
-    FuncPtr { pc: u32, param_register: u32 },
+    StrPtr(std::rc::Rc<str>),
+    FuncPtr {
+        pc: ProgramCount,
+        param_register: Register,
+    },
     None,
 
-    RustString(String),
-    RustFnPtr(fn(VirtualMachineData) -> Result<VirtualMachineData, Diagnostics>),
+    RustFnPtr(fn(VirtualMachineData) -> VirtualMachineData),
     RustFnTrait(Rc<dyn RustCallFunction>),
 }
 
-struct FrameInfo {
-    return_pc: u32,
-    dest_register: u32,
+#[derive(Debug)]
+pub struct FrameInfo {
+    return_pc: ProgramCount,
+    dest_register: Register,
+}
+
+struct RegisterFile(Vec<VirtualMachineData>);
+
+impl ops::Index<Register> for RegisterFile {
+    type Output = VirtualMachineData;
+
+    fn index(&self, index: Register) -> &Self::Output {
+        &self.0[index as usize]
+    }
+}
+
+impl ops::IndexMut<Register> for RegisterFile {
+    fn index_mut(&mut self, index: Register) -> &mut Self::Output {
+        &mut self.0[index as usize]
+    }
 }
 
 pub struct VirtualMachine {
     bytecode: Bytecode,
     data_pool: DataPool,
-    pc: u32,
-    register_file: Vec<VirtualMachineData>,
+    register_file: RegisterFile,
+    pc: ProgramCount,
     call_stack: Vec<FrameInfo>,
 }
 
@@ -75,16 +190,10 @@ impl VirtualMachine {
         Self {
             bytecode: Vec::new(),
             data_pool: Vec::new(),
+            register_file: RegisterFile(vec![VirtualMachineData::None; 256]),
             pc: 0,
-            register_file: vec![VirtualMachineData::None; 1024],
             call_stack: Vec::with_capacity(32),
         }
-    }
-
-    pub fn load(&mut self, (pc, bytecode, data_pool): (u32, Bytecode, DataPool)) {
-        self.pc = pc;
-        self.bytecode = bytecode;
-        self.data_pool = data_pool;
     }
 
     pub fn with_load(mut self, (pc, bytecode, data_pool): (u32, Bytecode, DataPool)) -> Self {
@@ -94,223 +203,138 @@ impl VirtualMachine {
         self
     }
 
-    #[inline(always)]
-    pub unsafe fn run(&mut self) -> Result<(), Diagnostics> {
+    pub unsafe fn run(&mut self) {
         let mut pc = self.pc;
 
-        let code_len = self.bytecode.len();
+        while self.bytecode.len() > pc as usize {
+            let inst = self.bytecode[pc as usize];
 
-        while (pc as usize) < code_len {
-            let inst = unsafe { self.bytecode.get_unchecked(pc as usize) };
-            match &inst.operator {
-                Operator::Goto => {
-                    pc = inst.a;
+            match inst.opcode() {
+                Opcode::Goto => {
+                    pc = (inst.0 >> 8) as ProgramCount;
                     continue;
                 }
-                Operator::Mov => unsafe {
-                    *self.register_file.get_unchecked_mut(inst.a as usize) =
-                        self.register_file.get_unchecked(inst.b as usize).clone();
-                },
-                Operator::Ret => {
-                    let ret = unsafe { self.register_file.get_unchecked(inst.a as usize).clone() };
 
-                    let frame = unsafe { self.call_stack.pop().unwrap_unchecked() };
+                Opcode::Mov => {
+                    let dst = (inst.0 >> 8) as Register;
+                    let src = (inst.0 >> 24) as Register;
 
-                    unsafe {
-                        *self
-                            .register_file
-                            .get_unchecked_mut(frame.dest_register as usize) = ret;
-                    }
+                    self.register_file[dst] = self.register_file[src].clone();
+                }
+
+                Opcode::Ret => {
+                    let ret = self.register_file[(inst.0 >> 8) as Register].clone();
+
+                    let frame = self.call_stack.pop().unwrap();
+
+                    self.register_file[frame.dest_register] = ret;
 
                     pc = frame.return_pc;
 
                     continue;
                 }
-                Operator::Call => {
+
+                Opcode::Call => {
                     self.call_stack.push(FrameInfo {
                         return_pc: pc + 1,
-                        dest_register: inst.a,
+                        dest_register: (inst.0 >> 8) as Register,
                     });
 
-                    pc = inst.b;
+                    pc = ((inst.0 >> 24) & 0xFFFFFF) as ProgramCount;
 
                     continue;
                 }
-                Operator::CallReg => {
-                    self.call_stack.push(FrameInfo {
-                        return_pc: pc + 1,
-                        dest_register: inst.a,
-                    });
 
-                    unsafe {
-                        match self.register_file[inst.b as usize] {
-                            VirtualMachineData::FuncPtr {
-                                pc: target_pc,
-                                param_register,
-                            } => {
-                                *self
-                                    .register_file
-                                    .get_unchecked_mut(param_register as usize) =
-                                    self.register_file.get_unchecked(inst.c as usize).clone();
-                                pc = target_pc;
-                            }
-                            _ => {
-                                return Err(Diagnostics::runtime_error(format!(
-                                    "register {} is not function pointer",
-                                    inst.b
-                                )));
-                            }
-                        }
-                    };
+                Opcode::CallReg => {
+                    let func = self.register_file[(inst.0 >> 24) as Register].clone();
 
-                    continue;
-                }
-                Operator::TailCallReg => {
-                    unsafe {
-                        match self.register_file[inst.b as usize] {
-                            VirtualMachineData::FuncPtr {
-                                pc: target_pc,
-                                param_register,
-                            } => {
-                                *self
-                                    .register_file
-                                    .get_unchecked_mut(param_register as usize) =
-                                    self.register_file.get_unchecked(inst.c as usize).clone();
-
-                                pc = target_pc;
-                            }
-                            _ => {
-                                return Err(Diagnostics::runtime_error(format!(
-                                    "register {} is not function pointer",
-                                    inst.b
-                                )));
-                            }
-                        }
-                    };
-                    continue;
-                }
-                Operator::LoadFunc => unsafe {
-                    *self.register_file.get_unchecked_mut(inst.a as usize) =
+                    match func {
                         VirtualMachineData::FuncPtr {
-                            pc: inst.b,
-                            param_register: inst.c,
-                        };
-                },
-                Operator::LoadInt => unsafe {
-                    *self.register_file.get_unchecked_mut(inst.a as usize) =
-                        VirtualMachineData::Int(inst.b as i32);
-                },
-                Operator::LoadStr => unsafe {
-                    *self.register_file.get_unchecked_mut(inst.a as usize) =
-                        self.data_pool.get_unchecked(inst.b as usize).clone()
-                },
-                Operator::AddInt => {
-                    let lhs = unsafe { self.register_file.get_unchecked(inst.b as usize) };
-                    let rhs = unsafe { self.register_file.get_unchecked(inst.c as usize) };
+                            pc: target_pc,
+                            param_register,
+                        } => {
+                            self.register_file[param_register] =
+                                self.register_file[(inst.0 >> 40) as Register].clone();
 
-                    unsafe {
-                        let l_val = match lhs {
-                            VirtualMachineData::Int(v) => v.clone(),
-                            _ => std::hint::unreachable_unchecked(),
-                        };
+                            self.call_stack.push(FrameInfo {
+                                return_pc: pc + 1,
+                                dest_register: (inst.0 >> 8) as Register,
+                            });
 
-                        let r_val = match rhs {
-                            VirtualMachineData::Int(v) => v.clone(),
-                            _ => std::hint::unreachable_unchecked(),
-                        };
-
-                        *self.register_file.get_unchecked_mut(inst.a as usize) =
-                            VirtualMachineData::Int(l_val + r_val);
-                    }
-                }
-                Operator::SubInt => {
-                    let lhs = unsafe { self.register_file.get_unchecked(inst.b as usize) };
-                    let rhs = unsafe { self.register_file.get_unchecked(inst.c as usize) };
-
-                    unsafe {
-                        let l_val = match lhs {
-                            VirtualMachineData::Int(v) => v.clone(),
-                            _ => std::hint::unreachable_unchecked(),
-                        };
-
-                        let r_val = match rhs {
-                            VirtualMachineData::Int(v) => v.clone(),
-                            _ => std::hint::unreachable_unchecked(),
-                        };
-
-                        *self.register_file.get_unchecked_mut(inst.a as usize) =
-                            VirtualMachineData::Int(l_val - r_val);
-                    }
-                }
-                Operator::MulInt => {
-                    let lhs = unsafe { self.register_file.get_unchecked(inst.b as usize) };
-                    let rhs = unsafe { self.register_file.get_unchecked(inst.c as usize) };
-
-                    unsafe {
-                        let l_val = match lhs {
-                            VirtualMachineData::Int(v) => v.clone(),
-                            _ => std::hint::unreachable_unchecked(),
-                        };
-
-                        let r_val = match rhs {
-                            VirtualMachineData::Int(v) => v.clone(),
-                            _ => std::hint::unreachable_unchecked(),
-                        };
-
-                        *self.register_file.get_unchecked_mut(inst.a as usize) =
-                            VirtualMachineData::Int(l_val * r_val);
-                    }
-                }
-                Operator::DivInt => {
-                    let lhs = unsafe { self.register_file.get_unchecked(inst.b as usize) };
-                    let rhs = unsafe { self.register_file.get_unchecked(inst.c as usize) };
-
-                    unsafe {
-                        let l_val = match lhs {
-                            VirtualMachineData::Int(v) => v.clone(),
-                            _ => std::hint::unreachable_unchecked(),
-                        };
-
-                        let r_val = match rhs {
-                            VirtualMachineData::Int(v) => v.clone(),
-                            _ => std::hint::unreachable_unchecked(),
-                        };
-
-                        *self.register_file.get_unchecked_mut(inst.a as usize) =
-                            VirtualMachineData::Int(l_val / r_val);
-                    }
-                }
-                Operator::RustCall => unsafe {
-                    match &self.register_file[inst.b as usize] {
-                        VirtualMachineData::RustFnPtr(f) => {
-                            *self.register_file.get_unchecked_mut(inst.a as usize) =
-                                f(self.register_file.get_unchecked(inst.c as usize).clone())?;
+                            pc = target_pc;
                         }
-                        VirtualMachineData::RustFnTrait(nf) => {
-                            *self.register_file.get_unchecked_mut(inst.a as usize) =
-                                nf.call(self.register_file.get_unchecked(inst.c as usize).clone())?;
-                        }
-                        _ => {
-                            return Err(Diagnostics::runtime_error(format!(
-                                "register {} is not rust function",
-                                inst.b
-                            )));
-                        }
+
+                        _ => unreachable!(),
                     }
-                },
-                Operator::RustLoadFnPtr(f) => unsafe {
-                    *self.register_file.get_unchecked_mut(inst.a as usize) =
-                        VirtualMachineData::RustFnPtr(f.clone())
-                },
-                Operator::RustLoadFnTrait(nf) => unsafe {
-                    *self.register_file.get_unchecked_mut(inst.a as usize) =
-                        VirtualMachineData::RustFnTrait(nf.clone())
-                },
+
+                    continue;
+                }
+
+                Opcode::TailCallReg => {
+                    let func = self.register_file[(inst.0 >> 8) as Register].clone();
+
+                    match func {
+                        VirtualMachineData::FuncPtr {
+                            pc: target_pc,
+                            param_register,
+                        } => {
+                            self.register_file[param_register] =
+                                self.register_file[(inst.0 >> 24) as Register].clone();
+
+                            pc = target_pc;
+                        }
+
+                        _ => unreachable!(),
+                    }
+
+                    continue;
+                }
+
+                Opcode::LoadFunc => {
+                    self.register_file[(inst.0 >> 8) as Register] = VirtualMachineData::FuncPtr {
+                        pc: ((inst.0 >> 24) & 0xFFFFFF) as ProgramCount,
+                        param_register: (inst.0 >> 48) as Register,
+                    }
+                }
+                Opcode::LoadInt => {
+                    self.register_file[(inst.0 >> 8) as Register] =
+                        VirtualMachineData::Int((inst.0 >> 24) as u32 as i32);
+                }
+
+                Opcode::LoadStr => {
+                    self.register_file[(inst.0 >> 8) as Register] =
+                        self.data_pool[(inst.0 >> 24) as usize].clone();
+                }
+
+                Opcode::AddInt => {
+                    let lhs = match &self.register_file[(inst.0 >> 24) as Register] {
+                        VirtualMachineData::Int(v) => *v,
+                        _ => unreachable!(),
+                    };
+
+                    let rhs = match &self.register_file[(inst.0 >> 40) as Register] {
+                        VirtualMachineData::Int(v) => *v,
+                        _ => unreachable!(),
+                    };
+
+                    self.register_file[(inst.0 >> 8) as Register] =
+                        VirtualMachineData::Int(lhs + rhs);
+                }
+                Opcode::RustCall => {
+                    self.register_file[(inst.0 >> 8) as Register] =
+                        match &self.data_pool[((inst.0 >> 24) & 0xFFFFFF) as usize] {
+                            VirtualMachineData::RustFnPtr(f) => {
+                                f(self.register_file[(inst.0 >> 48) as Register].clone())
+                            }
+                            VirtualMachineData::RustFnTrait(nf) => {
+                                nf.call(self.register_file[(inst.0 >> 48) as Register].clone())
+                            }
+                            _ => unreachable!(),
+                        };
+                }
             }
 
             pc += 1;
         }
-
-        Ok(())
     }
 }

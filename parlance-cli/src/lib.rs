@@ -3,7 +3,7 @@ use std::{process, time::Instant};
 use clap::Parser;
 use parlance_compiler::{CompileObject, Compiler};
 use parlance_module::Pars;
-use parlance_prelude::{ffi::rust_string, io::print, math::add};
+use parlance_prelude::{io::print, math::add};
 use parlance_vm::VirtualMachine;
 
 #[derive(Parser)]
@@ -26,23 +26,21 @@ fn new_compiler() -> Compiler {
     let mut compiler = Compiler::new();
     compiler.insert_bytecode_function(print());
     compiler.insert_bytecode_function(add());
-    compiler.insert_bytecode_function(rust_string());
     compiler
 }
 
 fn run_object(compile_object: CompileObject, verbose: bool) {
-    let build_info = compile_object.build_binding("main").unwrap_or_else(|diagnostic| {
-        eprintln!("{}", diagnostic.to_string());
-        process::exit(1);
-    });
+    let build_info = compile_object
+        .build_binding("main")
+        .unwrap_or_else(|diagnostic| {
+            eprintln!("{}", diagnostic.to_string());
+            process::exit(1);
+        });
 
     let mut vm = VirtualMachine::new().with_load(build_info);
 
     let run = |vm: &mut VirtualMachine| unsafe {
-        vm.run().unwrap_or_else(|diagnostic| {
-            eprintln!("{}", diagnostic.to_string());
-            process::exit(1);
-        });
+        vm.run();
     };
 
     if verbose {
@@ -57,10 +55,12 @@ fn run_object(compile_object: CompileObject, verbose: bool) {
 /// Compile and run a packed `.pars` bundle. Shared by `parlance run` and
 /// `astro run`.
 pub fn run_pars(pars: &Pars, verbose: bool) {
-    let compile_object = new_compiler().compile_pars(pars).unwrap_or_else(|diagnostic| {
-        eprintln!("{}", diagnostic.to_string());
-        process::exit(1);
-    });
+    let compile_object = new_compiler()
+        .compile_pars(pars)
+        .unwrap_or_else(|diagnostic| {
+            eprintln!("{}", diagnostic.to_string());
+            process::exit(1);
+        });
     run_object(compile_object, verbose);
 }
 

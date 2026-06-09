@@ -1,5 +1,5 @@
 use parlance_compiler::BytecodeFunction;
-use parlance_vm::{Instruction, Operator, VirtualMachineData};
+use parlance_vm::{Instruction, VirtualMachineData};
 
 use crate::FnBuilder;
 
@@ -9,29 +9,23 @@ pub fn print() -> BytecodeFunction {
         build: |compile_object, func| {
             let mut builder = FnBuilder::new(compile_object, func);
 
+            let io_fn_ptr = builder.compile_object.data_pool.len();
             let dest = builder.alloc();
 
-            builder.emit(Instruction {
-                operator: Operator::RustLoadFnPtr(|value| {
-                    println!("{:?}", value);
-                    Ok(VirtualMachineData::None)
-                }),
-                a: dest,
-                b: 0,
-                c: 0,
-            });
-            builder.emit(Instruction {
-                operator: Operator::RustCall,
-                a: dest,
-                b: dest,
-                c: builder.param_register,
-            });
-            builder.emit(Instruction {
-                operator: Operator::Ret,
-                a: dest,
-                b: 0,
-                c: 0,
-            });
+            builder
+                .compile_object
+                .data_pool
+                .push(VirtualMachineData::RustFnPtr(|data| {
+                    println!("{:?}", data);
+                    VirtualMachineData::None
+                }));
+
+            builder.emit(Instruction::rust_call(
+                dest,
+                io_fn_ptr,
+                builder.param_register,
+            ));
+            builder.emit(Instruction::ret(dest));
 
             builder.build()
         },

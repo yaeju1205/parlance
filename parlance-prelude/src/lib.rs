@@ -1,12 +1,12 @@
 use std::rc::Rc;
 
 use parlance_compiler::{CompileObject, Function};
-use parlance_vm::{Bytecode, Instruction, Operator};
+use parlance_vm::{Bytecode, Instruction, Register};
 
 pub(self) struct FnBuilder<'a> {
     bytecode: Bytecode,
     compile_object: &'a mut CompileObject,
-    param_register: u32,
+    param_register: Register,
     function: Rc<Function>,
 }
 
@@ -20,30 +20,24 @@ impl<'a> FnBuilder<'a> {
         }
     }
 
-    pub fn alloc_param(&mut self) -> u32 {
+    pub fn alloc_param(&mut self) -> Register {
         let param_reg = self.alloc();
         let inner_func_reg = self.alloc();
 
         let inner_func_pc = self.function.pc + self.bytecode.len() as u32 + 2;
 
-        self.bytecode.push(Instruction {
-            operator: Operator::LoadFunc,
-            a: inner_func_reg,
-            b: inner_func_pc,
-            c: param_reg,
-        });
+        self.bytecode.push(Instruction::load_func(
+            inner_func_reg,
+            inner_func_pc,
+            param_reg,
+        ));
 
-        self.bytecode.push(Instruction {
-            operator: Operator::Ret,
-            a: inner_func_reg,
-            b: 0,
-            c: 0,
-        });
+        self.bytecode.push(Instruction::ret(inner_func_reg));
 
         param_reg
     }
 
-    pub fn alloc(&mut self) -> u32 {
+    pub fn alloc(&mut self) -> Register {
         self.compile_object.allocator.alloc()
     }
 
@@ -56,6 +50,6 @@ impl<'a> FnBuilder<'a> {
     }
 }
 
-pub mod ffi;
+// pub mod ffi;
 pub mod io;
 pub mod math;
