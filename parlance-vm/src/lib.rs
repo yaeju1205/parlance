@@ -2,6 +2,7 @@ use std::{fmt, ops, rc::Rc};
 
 pub type Register = u16;
 pub type ProgramCount = u32; // u24
+pub type DataPoolIndex = u32; // u24
 
 pub trait RustCallFunction {
     fn call(&self, arg: VirtualMachineData) -> VirtualMachineData;
@@ -109,7 +110,7 @@ impl Instruction {
     }
 
     #[inline(always)]
-    pub fn load_str(dest: Register, pool_index: usize) -> Self {
+    pub fn load_str(dest: Register, pool_index: DataPoolIndex) -> Self {
         Self(
             (Opcode::LoadStr as InstructionSize)
                 | ((dest as InstructionSize) << 8)
@@ -128,7 +129,7 @@ impl Instruction {
     }
 
     #[inline(always)]
-    pub fn rust_call(dest: Register, func: usize, arg: Register) -> Self {
+    pub fn rust_call(dest: Register, func: DataPoolIndex, arg: Register) -> Self {
         Self(
             (Opcode::RustCall as InstructionSize)
                 | ((dest as InstructionSize) << 8)
@@ -139,7 +140,6 @@ impl Instruction {
 }
 
 pub type Bytecode = Vec<Instruction>;
-pub type DataPool = Vec<VirtualMachineData>;
 
 #[derive(Debug, Clone)]
 pub enum VirtualMachineData {
@@ -177,6 +177,41 @@ impl ops::IndexMut<Register> for RegisterFile {
     }
 }
 
+#[derive(Debug, Default)]
+pub struct DataPool(Vec<VirtualMachineData>);
+
+impl DataPool {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn append(&mut self, data_pool: &mut DataPool) {
+        self.0.append(&mut data_pool.0);
+    }
+
+    pub fn len(&mut self) -> DataPoolIndex {
+        self.0.len() as DataPoolIndex
+    }
+
+    pub fn push(&mut self, data: VirtualMachineData) {
+        self.0.push(data);
+    }
+}
+
+impl ops::Index<DataPoolIndex> for DataPool {
+    type Output = VirtualMachineData;
+
+    fn index(&self, index: DataPoolIndex) -> &Self::Output {
+        &self.0[index as usize]
+    }
+}
+
+impl ops::IndexMut<DataPoolIndex> for DataPool {
+    fn index_mut(&mut self, index: DataPoolIndex) -> &mut Self::Output {
+        &mut self.0[index as usize]
+    }
+}
+
 pub struct VirtualMachine {
     bytecode: Bytecode,
     data_pool: DataPool,
@@ -189,7 +224,7 @@ impl VirtualMachine {
     pub fn new() -> Self {
         Self {
             bytecode: Vec::new(),
-            data_pool: Vec::new(),
+            data_pool: DataPool(Vec::new()),
             register_file: RegisterFile(vec![VirtualMachineData::None; 256]),
             pc: 0,
             call_stack: Vec::with_capacity(32),
@@ -303,7 +338,7 @@ impl VirtualMachine {
 
                 Opcode::LoadStr => {
                     self.register_file[(inst.0 >> 8) as Register] =
-                        self.data_pool[(inst.0 >> 24) as usize].clone();
+                        self.data_pool[(inst.0 >> 24) as DataPoolIndex].clone();
                 }
 
                 Opcode::AddInt => {
@@ -321,14 +356,11 @@ impl VirtualMachine {
                         VirtualMachineData::Int(lhs + rhs);
                 }
                 Opcode::RustCall => {
+                    let callee = &self.register_file[(inst.0 >> 48) as Register];
                     self.register_file[(inst.0 >> 8) as Register] =
-                        match &self.data_pool[((inst.0 >> 24) & 0xFFFFFF) as usize] {
-                            VirtualMachineData::RustFnPtr(f) => {
-                                f(self.register_file[(inst.0 >> 48) as Register].clone())
-                            }
-                            VirtualMachineData::RustFnTrait(nf) => {
-                                nf.call(self.register_file[(inst.0 >> 48) as Register].clone())
-                            }
+                        match &self.data_pool[((inst.0 >> 24) & 0xFFFFFF) as DataPoolIndex] {
+                            VirtualMachineData::RustFnPtr(f) => f(callee.clone()),
+                            VirtualMachineData::RustFnTrait(nf) => nf.call(callee.clone()),
                             _ => unreachable!(),
                         };
                 }

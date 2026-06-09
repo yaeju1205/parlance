@@ -6,7 +6,9 @@ use std::{
 
 use parlance_diagnostics::{Diagnostics, Span};
 use parlance_parser::Parser;
-use parlance_vm::{Bytecode, DataPool, Instruction, ProgramCount, Register, VirtualMachineData};
+use parlance_vm::{
+    Bytecode, DataPool, DataPoolIndex, Instruction, ProgramCount, Register, VirtualMachineData,
+};
 
 use parlance_module::Pars;
 
@@ -68,7 +70,7 @@ impl CompileObject {
             function_bytecode: Vec::new(),
             binding_map: HashMap::new(),
             string_cache: HashMap::new(),
-            data_pool: Vec::new(),
+            data_pool: DataPool::default(),
         }
     }
 
@@ -196,12 +198,12 @@ impl CompileObject {
             }
             FlattenValueKind::String(str_value) => {
                 let pool_idx = if let Some(idx) = self.string_cache.get(str_value) {
-                    *idx
+                    *idx as DataPoolIndex
                 } else {
                     let idx = self.data_pool.len();
                     self.data_pool
                         .push(VirtualMachineData::StrPtr(Rc::from(str_value.as_ref())));
-                    self.string_cache.insert(str_value.clone(), idx);
+                    self.string_cache.insert(str_value.clone(), idx as usize);
                     idx
                 };
 
