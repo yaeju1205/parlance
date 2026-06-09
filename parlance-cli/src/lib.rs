@@ -1,4 +1,4 @@
-use std::{process, time::Instant};
+use std::{mem, process, time::Instant};
 
 use clap::Parser;
 use parlance_compiler::{CompileObject, Compiler};
@@ -30,6 +30,13 @@ fn new_compiler() -> Compiler {
 }
 
 fn run_object(compile_object: CompileObject, verbose: bool) {
+    if verbose {
+        println!(
+            "CompileObject size: {} bytes",
+            mem::size_of_val(&compile_object)
+        );
+    }
+
     let build_info = compile_object
         .build_binding("main")
         .unwrap_or_else(|diagnostic| {

@@ -1,4 +1,4 @@
-use std::{fmt, ops, rc::Rc};
+use std::{fmt, mem, ops, rc::Rc};
 
 pub type Register = u16;
 pub type ProgramCount = u32; // u24
@@ -40,7 +40,7 @@ pub struct Instruction(InstructionSize);
 impl Instruction {
     #[inline(always)]
     pub fn opcode(&self) -> Opcode {
-        unsafe { std::mem::transmute((self.0 & 0xff) as u8) }
+        unsafe { mem::transmute((self.0 & 0xff) as u8) }
     }
 
     #[inline(always)]
@@ -144,7 +144,7 @@ pub type Bytecode = Vec<Instruction>;
 #[derive(Debug, Clone)]
 pub enum VirtualMachineData {
     Int(i32),
-    StrPtr(std::rc::Rc<str>),
+    StrPtr(Rc<str>),
     FuncPtr {
         pc: ProgramCount,
         param_register: Register,
