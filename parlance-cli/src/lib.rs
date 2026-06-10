@@ -4,7 +4,7 @@ use clap::Parser;
 use parlance_compiler::{CompileObject, Compiler};
 use parlance_module::Pars;
 use parlance_prelude::{io::print, math::add};
-use parlance_vm::VirtualMachine;
+use parlance_vm::{Instruction, VirtualMachine};
 
 #[derive(Parser)]
 #[command(name = "parlance")]
@@ -30,19 +30,19 @@ fn new_compiler() -> Compiler {
 }
 
 fn run_object(compile_object: CompileObject, verbose: bool) {
-    if verbose {
-        println!(
-            "CompileObject size: {} bytes",
-            mem::size_of_val(&compile_object)
-        );
-    }
-
     let build_info = compile_object
         .build_binding("main")
         .unwrap_or_else(|diagnostic| {
             eprintln!("{}", diagnostic.to_string());
             process::exit(1);
         });
+
+    if verbose {
+        println!(
+            "bytecode size: {} bytes",
+            build_info.1.len() * mem::size_of::<Instruction>()
+        );
+    }
 
     let mut vm = VirtualMachine::new().with_load(build_info);
 
