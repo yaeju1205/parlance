@@ -126,11 +126,12 @@ impl CompileObject {
                     callee_idx = idx;
                 }
 
+                let base_register = self.allocator.register;
+                let func_count_before = self.function_map.len();
+
                 let (arg_reg, mut arg_bc) = self.alloc_value(*arg)?;
 
                 let mut bytecode: Bytecode = Vec::new();
-
-                let start_reg = self.allocator.register;
 
                 if let Some(callee_func) = self.function_map.get(&callee_idx).cloned() {
                     bytecode.append(&mut arg_bc);
@@ -143,7 +144,9 @@ impl CompileObject {
                     if is_tail {
                         bytecode.push(Instruction::goto(callee_func.pc));
 
-                        self.allocator.free(self.allocator.register - start_reg);
+                        if func_count_before == self.function_map.len() {
+                            self.allocator.free(self.allocator.register - base_register);
+                        }
 
                         Ok((0, bytecode))
                     } else {
@@ -153,7 +156,9 @@ impl CompileObject {
 
                         self.binding_map.insert(value_idx, ret_reg);
 
-                        self.allocator.free(self.allocator.register - start_reg);
+                        if func_count_before == self.function_map.len() {
+                            self.allocator.free(self.allocator.register - base_register);
+                        }
 
                         Ok((ret_reg, bytecode))
                     }
@@ -169,7 +174,9 @@ impl CompileObject {
                             arg_reg as Register,
                         ));
 
-                        self.allocator.free(self.allocator.register - start_reg);
+                        if func_count_before == self.function_map.len() {
+                            self.allocator.free(self.allocator.register - base_register);
+                        }
 
                         Ok((0, bytecode))
                     } else {
@@ -183,7 +190,9 @@ impl CompileObject {
 
                         self.binding_map.insert(value_idx, ret_reg);
 
-                        self.allocator.free(self.allocator.register - start_reg);
+                        if func_count_before == self.function_map.len() {
+                            self.allocator.free(self.allocator.register - base_register);
+                        }
 
                         Ok((ret_reg, bytecode))
                     }
