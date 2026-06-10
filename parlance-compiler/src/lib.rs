@@ -25,6 +25,7 @@ mod resolver;
 #[derive(Debug, Default)]
 pub struct Allocator {
     pub register: Register,
+    is_full: bool,
 }
 
 impl Allocator {
@@ -32,10 +33,26 @@ impl Allocator {
         Self::default()
     }
 
-    pub fn alloc(&mut self) -> Register {
-        let reg = self.register;
-        self.register += 1;
-        reg
+    pub fn alloc(&mut self) -> Result<Register, Diagnostics> {
+        self.is_full = self.register == Register::MAX;
+
+        if self.is_full {
+            Err(Diagnostics::compiler_error(
+                "overflow register alloc".to_string(),
+                Span::default(),
+            ))
+        } else {
+            let reg = self.register;
+
+            self.register += 1;
+
+            Ok(reg)
+        }
+    }
+
+    pub fn free(&mut self, size: Register) {
+        self.register -= size.min(self.register);
+        self.is_full = self.register == Register::MAX;
     }
 }
 
@@ -47,7 +64,8 @@ pub struct Function {
 
 pub struct BytecodeFunction {
     pub name: String,
-    pub build: fn(compile_object: &mut CompileObject, func: Rc<Function>) -> Bytecode,
+    pub build:
+        fn(compile_object: &mut CompileObject, func: Rc<Function>) -> Result<Bytecode, Diagnostics>,
 }
 
 #[derive(Debug, Default)]
@@ -83,11 +101,11 @@ impl CompileObject {
         self.data_pool.append(&mut object.data_pool);
     }
 
-    fn build_value_inner(
+    fn alloc_value_inner(
         &mut self,
         value_idx: FlattenIndex,
         is_tail: bool,
-    ) -> Result<(u32, Bytecode), Diagnostics> {
+    ) -> Result<(Register, Bytecode), Diagnostics> {
         let Some(value) = self.flatten.file.get(value_idx) else {
             return Err(Diagnostics::compiler_error(
                 format!("not found value {value_idx}"),
@@ -96,7 +114,7 @@ impl CompileObject {
         };
 
         if let Some(&reg) = self.binding_map.get(&value_idx) {
-            return Ok((reg as u32, Vec::new()));
+            return Ok((reg, Vec::new()));
         }
 
         let mut bytecode: Bytecode = Vec::new();
@@ -108,9 +126,11 @@ impl CompileObject {
                     callee_idx = idx;
                 }
 
-                let (arg_reg, mut arg_bc) = self.build_value_inner(*arg, false)?;
+                let (arg_reg, mut arg_bc) = self.alloc_value(*arg)?;
 
                 let mut bytecode: Bytecode = Vec::new();
+
+                let start_reg = self.allocator.register;
 
                 if let Some(callee_func) = self.function_map.get(&callee_idx).cloned() {
                     bytecode.append(&mut arg_bc);
@@ -123,18 +143,22 @@ impl CompileObject {
                     if is_tail {
                         bytecode.push(Instruction::goto(callee_func.pc));
 
+                        self.allocator.free(self.allocator.register - start_reg);
+
                         Ok((0, bytecode))
                     } else {
-                        let ret_reg = self.allocator.alloc();
+                        let ret_reg = self.allocator.alloc()?;
 
                         bytecode.push(Instruction::call(ret_reg, callee_func.pc));
 
                         self.binding_map.insert(value_idx, ret_reg);
 
-                        Ok((ret_reg as u32, bytecode))
+                        self.allocator.free(self.allocator.register - start_reg);
+
+                        Ok((ret_reg, bytecode))
                     }
                 } else {
-                    let (callee_reg, mut callee_bc) = self.build_value_inner(callee_idx, false)?;
+                    let (callee_reg, mut callee_bc) = self.alloc_value(callee_idx)?;
 
                     bytecode.append(&mut arg_bc);
                     bytecode.append(&mut callee_bc);
@@ -145,9 +169,11 @@ impl CompileObject {
                             arg_reg as Register,
                         ));
 
+                        self.allocator.free(self.allocator.register - start_reg);
+
                         Ok((0, bytecode))
                     } else {
-                        let ret_reg = self.allocator.alloc();
+                        let ret_reg = self.allocator.alloc()?;
 
                         bytecode.push(Instruction::call_reg(
                             ret_reg,
@@ -157,18 +183,20 @@ impl CompileObject {
 
                         self.binding_map.insert(value_idx, ret_reg);
 
-                        Ok((ret_reg as u32, bytecode))
+                        self.allocator.free(self.allocator.register - start_reg);
+
+                        Ok((ret_reg, bytecode))
                     }
                 }
             }
             FlattenValueKind::Function { param, body } => {
-                let param_register = self.allocator.alloc();
+                let param_register = self.allocator.alloc()?;
                 self.binding_map.insert(*param, param_register);
 
-                let dest = self.allocator.alloc();
+                let dest = self.allocator.alloc()?;
                 self.binding_map.insert(value_idx, dest);
 
-                let (body_register, body_bytecode) = self.build_value_inner(*body, true)?;
+                let (body_register, body_bytecode) = self.alloc_value_inner(*body, true)?;
 
                 let func_pc = self.function_bytecode.len() as u32;
                 let func = Rc::new(Function {
@@ -185,16 +213,16 @@ impl CompileObject {
 
                 bytecode.push(Instruction::load_func(dest, func_pc, param_register));
 
-                Ok((dest as u32, bytecode))
+                Ok((dest, bytecode))
             }
             FlattenValueKind::Int(int_value) => {
-                let dest = self.allocator.alloc();
+                let dest = self.allocator.alloc()?;
 
                 bytecode.push(Instruction::load_int(dest, *int_value));
 
                 self.binding_map.insert(value_idx, dest);
 
-                Ok((dest as u32, bytecode))
+                Ok((dest, bytecode))
             }
             FlattenValueKind::String(str_value) => {
                 let pool_idx = if let Some(idx) = self.string_cache.get(str_value) {
@@ -207,16 +235,16 @@ impl CompileObject {
                     idx
                 };
 
-                let dest = self.allocator.alloc();
+                let dest = self.allocator.alloc()?;
 
                 bytecode.push(Instruction::load_str(dest, pool_idx));
 
                 self.binding_map.insert(value_idx, dest);
 
-                Ok((dest as u32, bytecode))
+                Ok((dest, bytecode))
             }
             FlattenValueKind::Variable(idx) => {
-                let (dest, mut var_bc) = self.build_value_inner(*idx, is_tail)?;
+                let (dest, mut var_bc) = self.alloc_value_inner(*idx, is_tail)?;
 
                 self.binding_map.insert(value_idx, dest as Register);
 
@@ -226,36 +254,39 @@ impl CompileObject {
             }
             FlattenValueKind::None => {
                 if let Some(func) = self.function_map.get(&value_idx).cloned() {
-                    let dest = self.allocator.alloc();
+                    let dest = self.allocator.alloc()?;
 
                     bytecode.push(Instruction::load_func(dest, func.pc, func.param_register));
 
                     self.binding_map.insert(value_idx, dest);
 
-                    Ok((dest as u32, bytecode))
+                    Ok((dest, bytecode))
                 } else {
-                    let dest = self.allocator.alloc();
+                    let dest = self.allocator.alloc()?;
 
                     self.binding_map.insert(value_idx, dest);
 
-                    Ok((dest as u32, bytecode))
+                    Ok((dest, bytecode))
                 }
             }
         }
     }
 
-    pub fn build_value(&mut self, value_idx: FlattenIndex) -> Result<(u32, Bytecode), Diagnostics> {
-        self.build_value_inner(value_idx, false)
+    pub fn alloc_value(
+        &mut self,
+        value_idx: FlattenIndex,
+    ) -> Result<(Register, Bytecode), Diagnostics> {
+        self.alloc_value_inner(value_idx, false)
     }
 
     pub fn build_binding(
         mut self,
         binding_name: &str,
-    ) -> Result<(u32, Bytecode, DataPool), Diagnostics> {
+    ) -> Result<(ProgramCount, Bytecode, DataPool), Diagnostics> {
         if let Some(value_idx) = self.flatten.clone().bindings.get(binding_name) {
-            let (_, mut main_bytecode) = self.build_value(*value_idx)?;
+            let (_, mut main_bytecode) = self.alloc_value(*value_idx)?;
             let mut func_bytecode = self.function_bytecode;
-            let pc = func_bytecode.len() as u32;
+            let pc = func_bytecode.len() as ProgramCount;
 
             let mut bytecode: Bytecode = Vec::new();
             bytecode.append(&mut func_bytecode);
@@ -313,10 +344,10 @@ impl Compiler {
                 .get(bytecode_func.name.as_str())
             {
                 let func = Rc::new(Function {
-                    param_register: compile_object.allocator.alloc(),
+                    param_register: compile_object.allocator.alloc()?,
                     pc: compile_object.function_bytecode.len() as u32,
                 });
-                let mut bytecode = (bytecode_func.build)(&mut compile_object, func.clone());
+                let mut bytecode = (bytecode_func.build)(&mut compile_object, func.clone())?;
                 compile_object.function_bytecode.append(&mut bytecode);
                 compile_object.function_map.insert(flatten_idx, func);
             }
@@ -371,10 +402,10 @@ impl Compiler {
         for bytecode_func in &self.bytecode_functions {
             if let Some(&flatten_idx) = flatten.bindings.get(bytecode_func.name.as_str()) {
                 let func = Rc::new(Function {
-                    param_register: compile_object.allocator.alloc(),
+                    param_register: compile_object.allocator.alloc()?,
                     pc: compile_object.function_bytecode.len() as u32,
                 });
-                let mut bytecode = (bytecode_func.build)(&mut compile_object, func.clone());
+                let mut bytecode = (bytecode_func.build)(&mut compile_object, func.clone())?;
                 compile_object.function_bytecode.append(&mut bytecode);
                 compile_object.function_map.insert(flatten_idx, func);
             }

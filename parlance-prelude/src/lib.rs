@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
 use parlance_compiler::{CompileObject, Function};
+use parlance_diagnostics::Diagnostics;
 use parlance_vm::{Bytecode, Instruction, Register};
 
 pub(self) struct FnBuilder<'a> {
@@ -20,9 +21,9 @@ impl<'a> FnBuilder<'a> {
         }
     }
 
-    pub fn alloc_param(&mut self) -> Register {
-        let param_reg = self.alloc();
-        let inner_func_reg = self.alloc();
+    pub fn alloc_param(&mut self) -> Result<Register, Diagnostics> {
+        let param_reg = self.alloc()?;
+        let inner_func_reg = self.alloc()?;
 
         let inner_func_pc = self.function.pc + self.bytecode.len() as u32 + 2;
 
@@ -34,10 +35,10 @@ impl<'a> FnBuilder<'a> {
 
         self.bytecode.push(Instruction::ret(inner_func_reg));
 
-        param_reg
+        Ok(param_reg)
     }
 
-    pub fn alloc(&mut self) -> Register {
+    pub fn alloc(&mut self) -> Result<Register, Diagnostics> {
         self.compile_object.allocator.alloc()
     }
 

@@ -10,7 +10,7 @@ pub fn print() -> BytecodeFunction {
             let mut builder = FnBuilder::new(compile_object, func);
 
             let io_fn_ptr = builder.compile_object.data_pool.len();
-            let dest = builder.alloc();
+            let dest = builder.alloc()?;
 
             builder
                 .compile_object
@@ -27,7 +27,7 @@ pub fn print() -> BytecodeFunction {
             ));
             builder.emit(Instruction::ret(dest));
 
-            builder.build()
+            Ok(builder.build())
         },
     }
 }

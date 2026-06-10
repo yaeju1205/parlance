@@ -10,14 +10,14 @@ pub fn add() -> BytecodeFunction {
             let mut builder = FnBuilder::new(&mut compile_object, func);
 
             let lhs = builder.param_register;
-            let rhs = builder.alloc_param();
-            let dest = builder.alloc();
+            let rhs = builder.alloc_param()?;
+            let dest = builder.alloc()?;
 
             builder.emit(Instruction::add_int(dest, lhs, rhs));
 
             builder.emit(Instruction::ret(dest));
 
-            builder.build()
+            Ok(builder.build())
         },
     }
 }
