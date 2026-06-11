@@ -16,7 +16,12 @@ pub fn print() -> BytecodeFunction {
                 .compile_object
                 .data_pool
                 .push(VirtualMachineData::RustFnPtr(|data| {
-                    println!("{:?}", data);
+                    match data {
+                        VirtualMachineData::StrPtr(ptr) => {
+                            println!("{}", ptr.as_ref());
+                        }
+                        _ => println!("{:?}", data),
+                    }
                     VirtualMachineData::None
                 }));
 

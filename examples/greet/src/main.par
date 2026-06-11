@@ -1,4 +1,1 @@
-infix 2 + a b = prelude::math::add a b
-infix 1 right $ a b = a b
-
-main = prelude::io::print $ (1 + 1)
+main = prelude::io::print "Hello"

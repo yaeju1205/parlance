@@ -129,13 +129,13 @@ impl CompileObject {
                 let base_register = self.allocator.register;
                 let func_count_before = self.function_map.len();
 
-                let (arg_reg, mut arg_bc) = self.alloc_value(*arg)?;
-
                 let mut bytecode: Bytecode = Vec::new();
+                let dest = self.allocator.alloc()?;
+
+                let (arg_reg, mut arg_bc) = self.alloc_value(*arg)?;
+                bytecode.append(&mut arg_bc);
 
                 if let Some(callee_func) = self.function_map.get(&callee_idx).cloned() {
-                    bytecode.append(&mut arg_bc);
-
                     bytecode.push(Instruction::mov(
                         callee_func.param_register,
                         arg_reg as Register,
@@ -150,22 +150,19 @@ impl CompileObject {
 
                         Ok((0, bytecode))
                     } else {
-                        let ret_reg = self.allocator.alloc()?;
+                        bytecode.push(Instruction::call(dest, callee_func.pc));
 
-                        bytecode.push(Instruction::call(ret_reg, callee_func.pc));
-
-                        self.binding_map.insert(value_idx, ret_reg);
+                        self.binding_map.insert(value_idx, dest);
 
                         if func_count_before == self.function_map.len() {
                             self.allocator.free(self.allocator.register - base_register);
                         }
 
-                        Ok((ret_reg, bytecode))
+                        Ok((dest, bytecode))
                     }
                 } else {
                     let (callee_reg, mut callee_bc) = self.alloc_value(callee_idx)?;
 
-                    bytecode.append(&mut arg_bc);
                     bytecode.append(&mut callee_bc);
 
                     if is_tail {
@@ -180,21 +177,19 @@ impl CompileObject {
 
                         Ok((0, bytecode))
                     } else {
-                        let ret_reg = self.allocator.alloc()?;
-
                         bytecode.push(Instruction::call_reg(
-                            ret_reg,
+                            dest,
                             callee_reg as Register,
                             arg_reg as Register,
                         ));
 
-                        self.binding_map.insert(value_idx, ret_reg);
+                        self.binding_map.insert(value_idx, dest);
 
                         if func_count_before == self.function_map.len() {
                             self.allocator.free(self.allocator.register - base_register);
                         }
 
-                        Ok((ret_reg, bytecode))
+                        Ok((dest, bytecode))
                     }
                 }
             }

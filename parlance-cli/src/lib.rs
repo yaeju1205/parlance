@@ -38,6 +38,7 @@ fn run_object(compile_object: CompileObject, verbose: bool) {
         });
 
     if verbose {
+        println!("instruction count: {}", build_info.1.len());
         println!(
             "bytecode size: {} bytes",
             build_info.1.len() * mem::size_of::<Instruction>()
