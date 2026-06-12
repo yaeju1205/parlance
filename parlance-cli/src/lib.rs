@@ -3,7 +3,7 @@ use std::{mem, process, time::Instant};
 use clap::Parser;
 use parlance_compiler::{CompileObject, Compiler};
 use parlance_module::Pars;
-use parlance_prelude::{io::print, math::add};
+use parlance_prelude::{controll::controll_if, io::print, math::add};
 use parlance_vm::{Instruction, VirtualMachine};
 
 #[derive(Parser)]
@@ -26,6 +26,7 @@ fn new_compiler() -> Compiler {
     let mut compiler = Compiler::new();
     compiler.insert_bytecode_function(print());
     compiler.insert_bytecode_function(add());
+    compiler.insert_bytecode_function(controll_if());
     compiler
 }
 

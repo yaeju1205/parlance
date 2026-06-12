@@ -27,6 +27,8 @@ pub enum Opcode {
     LoadInt,
     LoadStr,
     AddInt,
+    Cmp,
+    JmpEq,
 
     RustCall,
 }
@@ -129,6 +131,25 @@ impl Instruction {
     }
 
     #[inline(always)]
+    pub fn cmp(dest: Register, lhs: Register, rhs: Register) -> Self {
+        Self(
+            (Opcode::Cmp as InstructionSize)
+                | ((dest as InstructionSize) << 8)
+                | ((lhs as InstructionSize) << 24)
+                | ((rhs as InstructionSize) << 40),
+        )
+    }
+
+    #[inline(always)]
+    pub fn jmp_eq(cond: Register, pc: ProgramCount) -> Self {
+        Self(
+            (Opcode::JmpEq as InstructionSize)
+                | ((cond as InstructionSize) << 8)
+                | ((pc as InstructionSize) << 24),
+        )
+    }
+
+    #[inline(always)]
     pub fn rust_call(dest: Register, func: DataPoolIndex, arg: Register) -> Self {
         Self(
             (Opcode::RustCall as InstructionSize)
@@ -143,6 +164,7 @@ pub type Bytecode = Vec<Instruction>;
 
 #[derive(Debug, Clone)]
 pub enum VirtualMachineData {
+    Bool(bool),
     Int(i32),
     StrPtr(Rc<str>),
     FuncPtr {
@@ -153,6 +175,21 @@ pub enum VirtualMachineData {
 
     RustFnPtr(fn(VirtualMachineData) -> VirtualMachineData),
     RustFnTrait(Rc<dyn RustCallFunction>),
+}
+
+impl PartialEq for VirtualMachineData {
+    fn eq(&self, other: &Self) -> bool {
+        match self {
+            VirtualMachineData::RustFnTrait(_) => {
+                if let VirtualMachineData::RustFnTrait(_) = other {
+                    true
+                } else {
+                    false
+                }
+            }
+            _ => self == other,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -355,6 +392,13 @@ impl VirtualMachine {
                     self.register_file[(inst.0 >> 8) as Register] =
                         VirtualMachineData::Int(lhs + rhs);
                 }
+                Opcode::Cmp => {
+                    let lhs = &self.register_file[(inst.0 >> 24) as Register];
+                    let rhs = &self.register_file[(inst.0 >> 40) as Register];
+
+                    self.register_file[(inst.0 >> 8) as Register] =
+                        VirtualMachineData::Bool(rhs == lhs);
+                }
                 Opcode::RustCall => {
                     let callee = &self.register_file[(inst.0 >> 48) as Register];
                     self.register_file[(inst.0 >> 8) as Register] =
@@ -363,6 +407,22 @@ impl VirtualMachine {
                             VirtualMachineData::RustFnTrait(nf) => nf.call(callee.clone()),
                             _ => unreachable!(),
                         };
+                }
+                Opcode::JmpEq => {
+                    let cond = &self.register_file[(inst.0 >> 8) as Register];
+                    match cond {
+                        VirtualMachineData::Bool(cond_bool) => {
+                            if *cond_bool {
+                                pc = (inst.0 >> 24) as ProgramCount;
+                            }
+                        }
+                        VirtualMachineData::None => {}
+                        _ => {
+                            pc = (inst.0 >> 24) as ProgramCount;
+                        }
+                    }
+
+                    continue;
                 }
             }
 

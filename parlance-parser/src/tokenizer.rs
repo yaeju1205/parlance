@@ -189,8 +189,7 @@ pub fn tokenize<'a>(source: &'a str) -> Result<Vec<Token>, Diagnostics> {
             }
         }
 
-        if ch == '(' || ch == ')' || ch == '=' || ch == '\\' || ch == '{' || ch == '}'
-            || ch == ','
+        if ch == '(' || ch == ')' || ch == '=' || ch == '\\' || ch == '{' || ch == '}' || ch == ','
         {
             chars.next();
             current += ch.len_utf8();

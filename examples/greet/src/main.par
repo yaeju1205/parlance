@@ -1,1 +1,2 @@
-main = prelude::io::print "Hello"
+infix 0 $ a b = a b
+main = prelude::io::print (prelude::controll::if "Hello" "a" "b")

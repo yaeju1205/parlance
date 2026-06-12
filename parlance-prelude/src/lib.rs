@@ -51,6 +51,6 @@ impl<'a> FnBuilder<'a> {
     }
 }
 
-// pub mod ffi;
+pub mod controll;
 pub mod io;
 pub mod math;
