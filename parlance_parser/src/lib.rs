@@ -566,16 +566,6 @@ mod tests {
     }
 
     #[test]
-    fn smoke_parse_float_leading_dot() {
-        let (stmts, _) = parse_program("define x = .5").unwrap();
-        let expr = match &stmts[0] {
-            Stmt::Define { expr, .. } => expr,
-            _ => panic!("expected define"),
-        };
-        assert!(matches!(expr, Expr::Float(n) if (n - 0.5).abs() < 1e-10));
-    }
-
-    #[test]
     fn smoke_parse_int_not_float() {
         let (stmts, _) = parse_program("define x = 42").unwrap();
         let expr = match &stmts[0] {

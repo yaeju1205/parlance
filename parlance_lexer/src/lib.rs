@@ -12,7 +12,7 @@
 //     digit          '0'..'9'                 [0-9]
 //     ident_start    [a-zA-Z_]                [a-zA-Z_]
 //     ident_cont     [a-zA-Z0-9_']            [a-zA-Z0-9_']
-//     symbol         !#$%&*+-./<=>?@^|~=     see is_symbol()
+//     symbol         !#$%&*+-./<=>?@^|~=      see is_symbol()
 //     quote          "                        "
 //     lparen         (                        (
 //     rparen         )                        )
@@ -24,16 +24,14 @@
 //                    │                       ▼
 //       START ──digit──→  INT  ◄── digit ────┘
 //                         │
-//                         │ '.' + digit  →  FLOAT  ◄── digit ──┐
+//                         │   '.' + digit  →  FLOAT  ◄── digit ──┐
 //                         │                                      │
-//                         │ any other       →  ACCEPT (emit Int) │
+//                         │ any other      →  ACCEPT (emit Int)  │
 //                         │                                      │
-//                    ┌──── '.' + digit ────┐                     │
-//                    │                     ▼                     │
 //       START ──'.' + digit ──→  FLOAT ────── digit ─────────────┘
 //                                      │
 //                                      │ any non-digit → ACCEPT (emit Float)
-//
+//                                      │
 //                    ┌─── ident_cont ───────┐
 //                    │                      ▼
 //       START ──ident──→  IDENT ◄── ident_cont ─┘
@@ -41,8 +39,8 @@
 //                         │ any non-ident_cont  →  ACCEPT (emit Ident/keyword)
 //
 //                    ┌─── (any non-quote, non-backslash) ──┐
-//                    │                                      │
-//                    ▼                                      │
+//                    │                                     │
+//                    ▼                                     │
 //       START ──quote──→  STRING ──→  STRING_ESC ──→ ──────┘
 //                         │              │
 //                         │ quote        │ any
@@ -198,18 +196,6 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                 let s: String = chars[start..pos].iter().collect();
                 Token::Int(s.parse().unwrap_or(0))
             }
-        } else if c == '.' && pos + 1 < chars.len() && chars[pos + 1].is_ascii_digit() {
-            // ── DFA: FLOAT starting with '.' (e.g. `.5`) ─────────
-            //  δ(START, '.') ─ with lookahead digit → FLOAT
-            let start = pos;
-            pos += 1; // consume '.'
-            col += 1;
-            while pos < chars.len() && chars[pos].is_ascii_digit() {
-                pos += 1;
-                col += 1;
-            }
-            let s: String = chars[start..pos].iter().collect();
-            Token::Float(s.parse::<f64>().unwrap_or(0.0))
         } else if is_ident_start(c) {
             // ── DFA: IDENT state ─────────────────────────────────
             //  δ(START, ident_start) → IDENT
