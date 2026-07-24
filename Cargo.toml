@@ -1,0 +1,13 @@
+[package]
+name = "parlance"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+members = [
+    "parlance_lexer",
+    "parlance_parser",
+    "parlance_import",
+    "parlance_semant",
+    "parlance_ir",
+]
