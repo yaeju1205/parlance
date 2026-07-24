@@ -10,4 +10,5 @@ members = [
     "parlance_import",
     "parlance_semant",
     "parlance_ir",
+    "parlance_optimize",
 ]

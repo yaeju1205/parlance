@@ -50,7 +50,7 @@ pub enum Ir {
 
 /// A top-level definition in the IR.
 /// Produced by lowering a desugared AST program.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum IrDef {
     /// `define name = ir`
     Bind { name: String, expr: Ir },
@@ -187,7 +187,7 @@ pub fn fold_constants(ir: &Ir) -> Ir {
 
 /// Substitute `var` ↦ `replacement` in `ir`.
 /// Simple capture-avoiding substitution for the pure lambda core.
-fn subst(ir: &Ir, var: &str, replacement: &Ir) -> Ir {
+pub fn subst(ir: &Ir, var: &str, replacement: &Ir) -> Ir {
     match ir {
         Ir::Int(_) | Ir::Float(_) | Ir::Str(_) => ir.clone(),
 
