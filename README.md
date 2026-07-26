@@ -8,13 +8,13 @@ Parlance는 순수 함수형 프로그래밍 언어로, λ-계산법을 기반�
 
 ```bash
 # 컴파일 + 실행
-cargo run -p parlc -- examples/hello.plc --run
+cargo run -p parlance -- examples/hello.plc --run
 
 # 바이트코드 확인
-cargo run -p parlc -- examples/hello.plc --bytecode
+cargo run -p parlance -- examples/hello.plc --bytecode
 
 # 최적화된 IR 확인
-cargo run -p parlc -- examples/hello.plc --opt
+cargo run -p parlance -- examples/hello.plc --opt
 
 # 모든 테스트 실행
 cargo test
@@ -23,7 +23,7 @@ cargo test
 ## 예제
 
 ```plc
-define id = \x => x        # 항등 함수
+define id = \x -> x        # 항등 함수
 define result = id 42      # 함수 적용
 
 infix + 5 = add            # 중위 연산자 선언
@@ -52,14 +52,14 @@ parlc file.plc -o out.bc           # 바이트코드 저장
 
 ```
 소스 (.plc)
-  → [lexer]     DFA 스캐너             →  토큰 스트림
+  → [lexer]     DFA 스캐너              →  토큰 스트림
   → [parser]    재귀하강 + Pratt        →  AST (Expr, Stmt)
-  → [import]    모듈 해석              →  import → 정의 병합
+  → [import]    모듈 해석               →  import → 정의 병합
   → [semant]    표기적 의미론 desugar   →  순수 λ-term (Infix/Bind/Seq 제거)
-  → [ir]        λ-계산법 IR            →  Int | Float | Str | Var | Lam | App
+  → [ir]        λ-계산법 IR             →  Int | Float | Str | Var | Lam | App
   → [opt]       η-reduction, β-reduction, inlining, DCE
-  → [codegen]   GraftVM bytecode       →  Opcode 리스트
-  → [run]       GraftVM 인터프리터     →  실행
+  → [codegen]   GraftVM bytecode        →  Opcode 리스트
+  → [run]       GraftVM 인터프리터      →  실행
 ```
 
 ## 이론
