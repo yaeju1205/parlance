@@ -38,14 +38,19 @@ define demo = var x <- 1 >>= var y <- 2 >>= x + y
 ## 사용법
 
 ```bash
-parlc file.plc                     # 바이트코드 출력
-parlc file.plc --tokens            # 토큰 스트림
-parlc file.plc --ast               # AST
-parlc file.plc --ir                # IR
-parlc file.plc --opt               # 최적화된 IR
-parlc file.plc --bytecode          # 바이트코드
-parlc file.plc --run               # 컴파일 + GraftVM 실행
-parlc file.plc -o out.bc           # 바이트코드 저장
+parlance file.plc                     # 바이트코드 출력
+parlance file.plc --tokens            # 토큰 스트림
+parlance file.plc --ast               # AST
+parlance file.plc --ir                # IR
+parlance file.plc --opt               # 최적화된 IR
+parlance file.plc --bytecode          # 바이트코드
+parlance file.plc --run               # 컴파일 + GraftVM 실행
+parlance file.plc -o out.bc           # 바이트코드 저장
+```
+
+## 설치
+```bash
+cargo install --path .
 ```
 
 ## 파이프라인
