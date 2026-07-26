@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-parlance_lexer = { path = "../parlance_lexer" }
+parlance_lexer.workspace = true

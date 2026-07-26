@@ -1,0 +1,7 @@
+infix + 5 = add
+infix * 6 = mul
+
+define add = \x -> \y -> x
+define mul = \x -> \y -> x
+
+define expr = 1 + 2 * 3

@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-parlance_parser = { path = "../parlance_parser" }
+parlance_parser.workspace = true

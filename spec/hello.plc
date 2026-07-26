@@ -1,0 +1,2 @@
+define id = \x -> x
+define result = id 42

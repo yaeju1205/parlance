@@ -1,0 +1,6 @@
+infix + 5 = add
+define add = \x -> \y -> x
+
+define demo = var x <- 1 >>=
+              var y <- 2 >>=
+              x + y

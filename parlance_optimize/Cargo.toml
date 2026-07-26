@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-parlance_ir = { path = "../parlance_ir" }
+parlance_ir.workspace = true

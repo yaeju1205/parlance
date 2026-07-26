@@ -3,6 +3,10 @@ name = "parlance"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "parlance"
+path = "src/main.rs"
+
 [workspace]
 members = [
     "parlance_lexer",
@@ -11,4 +15,26 @@ members = [
     "parlance_semant",
     "parlance_ir",
     "parlance_optimize",
+    "parlance_codegen",
 ]
+
+[workspace.dependencies]
+parlance_lexer = { path = "parlance_lexer" }
+parlance_parser = { path = "parlance_parser" }
+parlance_import = { path = "parlance_import" }
+parlance_semant = { path = "parlance_semant" }
+parlance_ir = { path = "parlance_ir" }
+parlance_optimize = { path = "parlance_optimize" }
+parlance_codegen = { path = "parlance_codegen" }
+
+[dependencies]
+parlance_lexer.workspace = true
+parlance_parser.workspace = true
+parlance_import.workspace = true
+parlance_semant.workspace = true
+parlance_ir.workspace = true
+parlance_optimize.workspace = true
+parlance_codegen.workspace = true
+
+graftvm_bytecode = { git = "https://github.com/yaeju1205/graftvm", package = "graftvm_bytecode" }
+graftvm_interpreter = { git = "https://github.com/yaeju1205/graftvm", package = "graftvm_interpreter" }

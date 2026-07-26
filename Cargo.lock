@@ -3,8 +3,70 @@
 version = 4
 
 [[package]]
+name = "graftvm_bytecode"
+version = "0.1.0"
+source = "git+https://github.com/yaeju1205/graftvm#381deebc6db0309731afe8d8331c132ce05a2948"
+dependencies = [
+ "graftvm_liternal",
+]
+
+[[package]]
+name = "graftvm_interpreter"
+version = "0.1.0"
+source = "git+https://github.com/yaeju1205/graftvm#381deebc6db0309731afe8d8331c132ce05a2948"
+dependencies = [
+ "graftvm_bytecode",
+ "graftvm_liternal",
+ "graftvm_window",
+ "rpipe",
+]
+
+[[package]]
+name = "graftvm_ir"
+version = "0.1.0"
+source = "git+https://github.com/yaeju1205/graftvm#381deebc6db0309731afe8d8331c132ce05a2948"
+dependencies = [
+ "graftvm_bytecode",
+ "graftvm_liternal",
+]
+
+[[package]]
+name = "graftvm_liternal"
+version = "0.1.0"
+source = "git+https://github.com/yaeju1205/graftvm#381deebc6db0309731afe8d8331c132ce05a2948"
+
+[[package]]
+name = "graftvm_window"
+version = "0.1.0"
+source = "git+https://github.com/yaeju1205/graftvm#381deebc6db0309731afe8d8331c132ce05a2948"
+dependencies = [
+ "graftvm_liternal",
+]
+
+[[package]]
 name = "parlance"
 version = "0.1.0"
+dependencies = [
+ "graftvm_bytecode",
+ "graftvm_interpreter",
+ "parlance_codegen",
+ "parlance_import",
+ "parlance_ir",
+ "parlance_lexer",
+ "parlance_optimize",
+ "parlance_parser",
+ "parlance_semant",
+]
+
+[[package]]
+name = "parlance_codegen"
+version = "0.1.0"
+dependencies = [
+ "graftvm_bytecode",
+ "graftvm_ir",
+ "parlance_ir",
+ "parlance_optimize",
+]
 
 [[package]]
 name = "parlance_import"
@@ -45,3 +107,9 @@ dependencies = [
  "parlance_import",
  "parlance_parser",
 ]
+
+[[package]]
+name = "rpipe"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f75a0085b9e896fd154592dd91b0b5d8b375ef56fbc8376470eb9b2248a9ea3"

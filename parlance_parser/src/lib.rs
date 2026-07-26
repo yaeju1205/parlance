@@ -389,7 +389,7 @@ impl Parser {
     ///
     ///   atom ::= INT | FLOAT | STR | IDENT
     ///          | "(" expr ")"
-    ///          | "\" IDENT "=>" expr
+    ///          | "\" IDENT "->" expr
     fn parse_atom(&mut self) -> Result<Expr, ParseError> {
         let sp = self.advance();
         let (line, col) = (sp.line, sp.col);

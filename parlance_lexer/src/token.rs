@@ -94,7 +94,7 @@ impl fmt::Display for Token {
             Token::Ident(s) => write!(f, "{s}"),
             Token::Op(s) => write!(f, "{s}"),
             Token::Backslash => write!(f, "\\"),
-            Token::Arrow => write!(f, "=>"),
+            Token::Arrow => write!(f, "->"),
             Token::Equal => write!(f, "="),
             Token::Bind => write!(f, "<-"),
             Token::BindChain => write!(f, ">>="),

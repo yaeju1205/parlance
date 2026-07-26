@@ -1,0 +1,11 @@
+[package]
+name = "parlance_codegen"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+parlance_ir.workspace = true
+parlance_optimize.workspace = true
+
+graftvm_ir = { git = "https://github.com/yaeju1205/graftvm", package = "graftvm_ir" }
+graftvm_bytecode = { git = "https://github.com/yaeju1205/graftvm", package = "graftvm_bytecode" }
