@@ -1,0 +1,11 @@
+infix + 5 = add
+infix - 5 = sub
+infix * 6 = mul
+infix / 6 = div
+infix == 4 = eq
+
+define add = \x -> \y -> x
+define sub = \x -> \y -> x
+define mul = \x -> \y -> x
+define div = \x -> \y -> x
+define eq = \x -> \y -> x

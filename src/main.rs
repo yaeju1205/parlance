@@ -12,7 +12,7 @@
 
 use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process;
 
 use graftvm_interpreter::vm::VM;
@@ -28,13 +28,50 @@ fn main() {
         process::exit(1);
     }
 
+    // ── Set up search paths for std library ──────────────────────
+    let std_dir = if let Ok(exe) = env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let p = dir.join("std");
+            if p.is_dir() { p } else { PathBuf::from("std") }
+        } else {
+            PathBuf::from("std")
+        }
+    } else {
+        PathBuf::from("std")
+    };
+    parlance_import::set_search_paths(vec![
+        std_dir.clone(),
+        // fallback: current working directory
+        PathBuf::from("std"),
+    ]);
+
     let path = &args[1];
-    let source = match fs::read_to_string(path) {
+    let raw_source = match fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("error: cannot read '{}': {}", path, e);
             process::exit(1);
         }
+    };
+
+    // ── Automatically prepend prelude ────────────────────────────
+    // Reads std/prelude.plc and inlines its content before parsing.
+    // This ensures infix declarations are visible to the Pratt parser
+    // before it encounters user expressions that use those operators.
+    let prelude = (|| -> Option<String> {
+        // Try multiple locations for the std/ directory
+        for dir in [PathBuf::from("std"), std_dir.clone()] {
+            let path = dir.join("prelude.plc");
+            if let Ok(content) = fs::read_to_string(&path) {
+                return Some(content);
+            }
+        }
+        eprintln!("warning: std/prelude.plc not found — compiling without prelude");
+        None
+    })();
+    let source = match prelude {
+        Some(p) => format!("{}\n{}", p, raw_source),
+        None => raw_source.clone(),
     };
 
     let flags: Vec<&str> = args.iter().skip(2).map(|s| s.as_str()).collect();
