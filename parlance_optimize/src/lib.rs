@@ -135,8 +135,10 @@ fn inline_defs(defs: &[IrDef]) -> Vec<IrDef> {
 
     let last_idx = defs.len() - 1;
 
-    // Names that must never be inlined — these are built-ins (e.g. print)
-    // whose special handling happens in codegen, not in the IR optimizer.
+    // Names that must never be inlined — these are NFI (Native
+    // Function Interface) built-ins whose special handling happens
+    // in codegen, not in the IR optimizer.
+    // Keep in sync with `parlance_codegen/src/nfi.rs`.
     let keep: HashSet<&str> = ["print", "add", "sub", "mul", "div"].into();
 
     let inline_map: Vec<(String, Ir)> = defs
