@@ -137,7 +137,7 @@ fn inline_defs(defs: &[IrDef]) -> Vec<IrDef> {
 
     // Names that must never be inlined — these are built-ins (e.g. print)
     // whose special handling happens in codegen, not in the IR optimizer.
-    let keep: HashSet<&str> = ["print"].into();
+    let keep: HashSet<&str> = ["print", "add", "sub", "mul", "div"].into();
 
     let inline_map: Vec<(String, Ir)> = defs
         .iter()

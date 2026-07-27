@@ -266,6 +266,33 @@ impl Codegen {
             }
         }
 
+        // ── Binary built-in: detect ((add|sub|mul|div) lhs) rhs ──
+        // In Parlance, `1 + 2` desugars to App(App(Var("add"), 1), 2).
+        // This pattern catches the outer App and emits a real arithmetic opcode.
+        if let Ir::App(f_inner, lhs) = f {
+            if let Ir::Var(ref func_name) = f_inner.as_ref() {
+                if self.func_names.contains_key(func_name) {
+                    match func_name.as_str() {
+                        "add" | "sub" | "mul" | "div" => {
+                            let lhs_var = self.compile_expr(lhs);
+                            let rhs_var = self.compile_expr(a);
+                            let result = self.fresh_label("binop");
+                            let result_var = self.builder.var(&result, Width::I64);
+                            match func_name.as_str() {
+                                "add" => self.builder.add(&result_var, &lhs_var, &rhs_var),
+                                "sub" => self.builder.sub(&result_var, &lhs_var, &rhs_var),
+                                "mul" => self.builder.mul(&result_var, &lhs_var, &rhs_var),
+                                "div" => self.builder.div(&result_var, &lhs_var, &rhs_var),
+                                _ => unreachable!(),
+                            }
+                            return result_var;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
         // Inline application: evaluate argument, then evaluate body.
         // This handles App(Lam{...}, arg) directly.
         if let Ir::Lam { param, body } = f {
