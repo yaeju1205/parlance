@@ -181,10 +181,7 @@ impl Codegen {
 
             Ir::Str(s) => {
                 let name = self.fresh_label("str");
-                // Store string as a I64 pointer (placeholder — runtime
-                // would allocate the string in GraftVM's memory model).
-                let _ = s;
-                self.builder.i64(&name, s.len() as i64)
+                self.builder.constant(&name, graftvm_liternal::Liternal::String(s.clone()))
             }
 
             Ir::Var(v) => {
