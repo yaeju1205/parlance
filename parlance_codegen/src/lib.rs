@@ -45,6 +45,9 @@ use graftvm_ir::IrBuilder;
 use parlance_ir::{Ir, IrDef};
 use parlance_optimize::optimize;
 
+mod nfi;
+use nfi::NativeRegistry;
+
 /// Compile an optimized IR program into GraftVM bytecode.
 ///
 /// Returns the bytecode (list of opcodes) and debug annotations.
@@ -73,6 +76,8 @@ struct Codegen {
     func_names: HashMap<String, usize>,
     /// Unique counter for anonymous labels.
     anon_counter: usize,
+    /// Native function registry (built-in functions).
+    nfi: NativeRegistry,
 }
 
 impl Codegen {
@@ -81,6 +86,7 @@ impl Codegen {
             builder: IrBuilder::new(),
             func_names: HashMap::new(),
             anon_counter: 0,
+            nfi: NativeRegistry::builtins(),
         }
     }
 
@@ -266,28 +272,18 @@ impl Codegen {
             }
         }
 
-        // ── Binary built-in: detect ((add|sub|mul|div) lhs) rhs ──
+        // ── Binary native: detect ((func_name lhs) rhs) ──────────
         // In Parlance, `1 + 2` desugars to App(App(Var("add"), 1), 2).
-        // This pattern catches the outer App and emits a real arithmetic opcode.
+        // The NFI registry checks if func_name is a binary built-in.
         if let Ir::App(f_inner, lhs) = f {
             if let Ir::Var(ref func_name) = f_inner.as_ref() {
-                if self.func_names.contains_key(func_name) {
-                    match func_name.as_str() {
-                        "add" | "sub" | "mul" | "div" => {
-                            let lhs_var = self.compile_expr(lhs);
-                            let rhs_var = self.compile_expr(a);
-                            let result = self.fresh_label("binop");
-                            let result_var = self.builder.var(&result, Width::I64);
-                            match func_name.as_str() {
-                                "add" => self.builder.add(&result_var, &lhs_var, &rhs_var),
-                                "sub" => self.builder.sub(&result_var, &lhs_var, &rhs_var),
-                                "mul" => self.builder.mul(&result_var, &lhs_var, &rhs_var),
-                                "div" => self.builder.div(&result_var, &lhs_var, &rhs_var),
-                                _ => unreachable!(),
-                            }
-                            return result_var;
-                        }
-                        _ => {}
+                if self.func_names.contains_key(func_name) && self.nfi.is_native(func_name) {
+                    let lhs_var = self.compile_expr(lhs);
+                    let rhs_var = self.compile_expr(a);
+                    if let Some(result) = self.nfi.compile_binary(
+                        &mut self.builder, func_name, &lhs_var, &rhs_var,
+                    ) {
+                        return result;
                     }
                 }
             }
@@ -366,16 +362,18 @@ impl Codegen {
 
     /// Compile a call to a named function.
     ///
-    /// Special-cases built-in functions (e.g. `print`) to emit native
-    /// opcodes instead of generating a function call.
+    /// First checks the NFI registry — if the function is a native
+    /// built-in (e.g. `print`), emits the native opcode directly
+    /// instead of generating a generic function call.
     fn compile_named_call(&mut self, func_name: &str, arg: &Ir) -> graftvm_ir::Var {
-        // ── print: built-in syscall (n=0: write to stdout) ──────
-        if func_name == "print" {
+        // ── Native function check (NFI) ──────────────────────────
+        if self.nfi.is_native(func_name) {
             let arg_var = self.compile_expr(arg);
-            let result = self.fresh_label("print_ret");
-            let result_var = self.builder.var(&result, Width::I64);
-            self.builder.syscall(0, &arg_var, &result_var);
-            return result_var;
+            if let Some(result) = self.nfi.compile_unary(
+                &mut self.builder, func_name, &arg_var,
+            ) {
+                return result;
+            }
         }
 
         let arg_var = self.compile_expr(arg);
