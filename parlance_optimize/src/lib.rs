@@ -135,13 +135,17 @@ fn inline_defs(defs: &[IrDef]) -> Vec<IrDef> {
 
     let last_idx = defs.len() - 1;
 
+    // Names that must never be inlined — these are built-ins (e.g. print)
+    // whose special handling happens in codegen, not in the IR optimizer.
+    let keep: HashSet<&str> = ["print"].into();
+
     let inline_map: Vec<(String, Ir)> = defs
         .iter()
         .enumerate()
         .filter_map(|(i, def)| match def {
-            // Don't inline away the last definition (entry point).
+            // Don't inline away the last definition (entry point) or built-ins.
             IrDef::Bind { name, expr }
-                if i != last_idx && inline_class(expr) == InlineHeuristic::Small =>
+                if i != last_idx && !keep.contains(name.as_str()) && inline_class(expr) == InlineHeuristic::Small =>
             {
                 Some((name.clone(), expr.clone()))
             }

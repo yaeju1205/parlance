@@ -117,6 +117,22 @@ impl Codegen {
                 }
             }
         }
+
+        // ── Entry point ──────────────────────────────────────────
+        // After all function definitions, call the last definition
+        // (the entry point) so the program actually executes.
+        if let Some(IrDef::Bind { name, .. }) = defs.last() {
+            let label = format!("def_{name}");
+            let dummy = self.builder.i64("entry.dummy", 0);
+            self.builder.push_arg(&dummy);
+            self.builder.enter();
+            let slot = self.builder.var("entry.slot", Width::I64);
+            self.builder.pop_arg(&slot);
+            self.builder.call(&label);
+            let ret = self.builder.var("entry.ret", Width::I64);
+            self.builder.pop_arg(&ret);
+            self.builder.exit();
+        }
     }
 
     // ── Definition compilation ──────────────────────────────────
@@ -331,7 +347,19 @@ impl Codegen {
     }
 
     /// Compile a call to a named function.
+    ///
+    /// Special-cases built-in functions (e.g. `print`) to emit native
+    /// opcodes instead of generating a function call.
     fn compile_named_call(&mut self, func_name: &str, arg: &Ir) -> graftvm_ir::Var {
+        // ── print: built-in syscall (n=0: write to stdout) ──────
+        if func_name == "print" {
+            let arg_var = self.compile_expr(arg);
+            let result = self.fresh_label("print_ret");
+            let result_var = self.builder.var(&result, Width::I64);
+            self.builder.syscall(0, &arg_var, &result_var);
+            return result_var;
+        }
+
         let arg_var = self.compile_expr(arg);
         let result = self.fresh_label("call");
         let result_var = self.builder.var(&result, Width::I64);

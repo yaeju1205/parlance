@@ -5,7 +5,6 @@ version = 4
 [[package]]
 name = "graftvm_bytecode"
 version = "0.1.0"
-source = "git+https://github.com/yaeju1205/graftvm#381deebc6db0309731afe8d8331c132ce05a2948"
 dependencies = [
  "graftvm_liternal",
 ]
@@ -13,7 +12,6 @@ dependencies = [
 [[package]]
 name = "graftvm_interpreter"
 version = "0.1.0"
-source = "git+https://github.com/yaeju1205/graftvm#381deebc6db0309731afe8d8331c132ce05a2948"
 dependencies = [
  "graftvm_bytecode",
  "graftvm_liternal",
@@ -24,7 +22,6 @@ dependencies = [
 [[package]]
 name = "graftvm_ir"
 version = "0.1.0"
-source = "git+https://github.com/yaeju1205/graftvm#381deebc6db0309731afe8d8331c132ce05a2948"
 dependencies = [
  "graftvm_bytecode",
  "graftvm_liternal",
@@ -33,12 +30,10 @@ dependencies = [
 [[package]]
 name = "graftvm_liternal"
 version = "0.1.0"
-source = "git+https://github.com/yaeju1205/graftvm#381deebc6db0309731afe8d8331c132ce05a2948"
 
 [[package]]
 name = "graftvm_window"
 version = "0.1.0"
-source = "git+https://github.com/yaeju1205/graftvm#381deebc6db0309731afe8d8331c132ce05a2948"
 dependencies = [
  "graftvm_liternal",
 ]

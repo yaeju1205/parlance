@@ -9,3 +9,5 @@ define sub = \x -> \y -> x
 define mul = \x -> \y -> x
 define div = \x -> \y -> x
 define eq = \x -> \y -> x
+
+define print = \x -> x
