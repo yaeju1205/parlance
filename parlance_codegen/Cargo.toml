@@ -9,3 +9,4 @@ parlance_optimize.workspace = true
 
 graftvm_ir = { git = "https://github.com/yaeju1205/graftvm", package = "graftvm_ir" }
 graftvm_bytecode = { git = "https://github.com/yaeju1205/graftvm", package = "graftvm_bytecode" }
+graftvm_liternal = { git = "https://github.com/yaeju1205/graftvm", package = "graftvm_liternal" }
