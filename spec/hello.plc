@@ -1,2 +1,4 @@
 define id = \x -> x
 define result = id 42
+
+define a = print "Hello"

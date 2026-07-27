@@ -38,10 +38,3 @@ parlance_codegen.workspace = true
 
 graftvm_bytecode = { git = "https://github.com/yaeju1205/graftvm", package = "graftvm_bytecode" }
 graftvm_interpreter = { git = "https://github.com/yaeju1205/graftvm", package = "graftvm_interpreter" }
-
-[patch."https://github.com/yaeju1205/graftvm"]
-graftvm_bytecode = { path = "../graftvm/graftvm_bytecode" }
-graftvm_interpreter = { path = "../graftvm/graftvm_interpreter" }
-graftvm_ir = { path = "../graftvm/graftvm_ir" }
-graftvm_liternal = { path = "../graftvm/graftvm_liternal" }
-graftvm_window = { path = "../graftvm/graftvm_window" }
