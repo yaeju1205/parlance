@@ -1,56 +1,90 @@
-// ── Native Function Interface ────────────────────────────────────
+// ── Native Function Interface (NFI) ───────────────────────────────
 //
-//  NFI (Native Function Interface) is a registry of built-in
-//  functions that the codegen knows how to compile to native
-//  opcodes instead of generating generic function calls.
+//  NFI is a registry that maps function names to their codegen
+//  behaviour.  The registry is populated from OUTSIDE the compiler
+//  (CLI flags, config files, etc.) — the codegen itself knows
+//  nothing about specific function names.
 //
-//  THEORY:
-//    In a purely functional language, every function is a λ-term.
-//    But some functions (I/O, arithmetic, etc.) MUST eventually
-//    map to actual machine operations — they cannot be λ-terms
-//    all the way down.  NFI is the bridge: it declares "these
-//    names are native" and provides the codegen with the exact
-//    opcode sequence to emit for each one.
-//
-//  ADDING A NEW NATIVE FUNCTION:
-//    1. Add an entry to `NativeRegistry::builtins()`
-//    2. Implement the handler in `compile_unary` or `compile_binary`
-//    3. If the function body in prelude.plc doesn't match the
-//       arity, the generic call path will still produce wrong
-//       results — keep the placeholder body consistent.
+//  Each entry specifies:
+//    - name:     the Parlance function name (e.g. "print", "add")
+//    - arity:    1 (unary) or 2 (binary)
+//    - emit_fn:  closure that emits the actual opcodes
 
 use std::collections::HashMap;
-
 use graftvm_bytecode::Width;
 use graftvm_ir::{IrBuilder, Var};
 
-/// Describes a native function known to the codegen.
-#[allow(dead_code)]
-pub struct NativeFn {
-    pub name: &'static str,
-    /// Number of arguments (1 = unary like `print`, 2 = binary like `add`).
+/// How to compile a native function: a closure that receives the
+/// builder and the compiled argument variables, and returns the
+/// result variable.
+pub type EmitFn = fn(&mut IrBuilder, &[&Var]) -> Var;
+
+/// One native function entry.
+pub struct NativeEntry {
+    pub name: String,
     pub arity: u32,
+    pub emit_fn: EmitFn,
 }
 
-/// Central registry of all native functions.
+/// Registry of native functions.
 pub struct NativeRegistry {
-    entries: HashMap<&'static str, NativeFn>,
+    entries: HashMap<String, NativeEntry>,
+}
+
+/// Default set of native functions that ship with Parlance.
+pub fn default_natives() -> Vec<(&'static str, u32, EmitFn)> {
+    vec![
+        // print x  →  syscall(0, x)  →  write to stdout
+        ("print", 1, |b, args| {
+            let r = b.var("nfi.print", Width::I64);
+            b.syscall(0, args[0], &r);
+            r
+        }),
+        // add x y  →  x + y
+        ("add", 2, |b, args| {
+            let r = b.var("nfi.add", Width::I64);
+            b.add(&r, args[0], args[1]);
+            r
+        }),
+        // sub x y  →  x - y
+        ("sub", 2, |b, args| {
+            let r = b.var("nfi.sub", Width::I64);
+            b.sub(&r, args[0], args[1]);
+            r
+        }),
+        // mul x y  →  x * y
+        ("mul", 2, |b, args| {
+            let r = b.var("nfi.mul", Width::I64);
+            b.mul(&r, args[0], args[1]);
+            r
+        }),
+        // div x y  →  x / y
+        ("div", 2, |b, args| {
+            let r = b.var("nfi.div", Width::I64);
+            b.div(&r, args[0], args[1]);
+            r
+        }),
+    ]
 }
 
 impl NativeRegistry {
-    /// Create the registry with all built-in native functions.
-    pub fn builtins() -> Self {
-        let mut reg = Self { entries: HashMap::new() };
-        reg.add("print", 1);
-        reg.add("add", 2);
-        reg.add("sub", 2);
-        reg.add("mul", 2);
-        reg.add("div", 2);
+    /// Create an empty registry.
+    pub fn empty() -> Self {
+        Self { entries: HashMap::new() }
+    }
+
+    /// Create a registry with default natives.
+    pub fn with_defaults() -> Self {
+        let mut reg = Self::empty();
+        for (name, arity, emit_fn) in default_natives() {
+            reg.add(name.to_string(), arity, emit_fn);
+        }
         reg
     }
 
-    fn add(&mut self, name: &'static str, arity: u32) {
-        self.entries.insert(name, NativeFn { name, arity });
+    /// Add or override a native entry.
+    pub fn add(&mut self, name: String, arity: u32, emit_fn: EmitFn) {
+        self.entries.insert(name.clone(), NativeEntry { name, arity, emit_fn });
     }
 
     /// Check whether a name is a known native function.
@@ -58,53 +92,16 @@ impl NativeRegistry {
         self.entries.contains_key(name)
     }
 
-    /// Return all registered native function names.
-    #[allow(dead_code)]
-    pub fn all_names(&self) -> Vec<&'static str> {
-        self.entries.keys().copied().collect()
+    /// Get all registered names.
+    pub fn all_names(&self) -> Vec<String> {
+        self.entries.keys().cloned().collect()
     }
 
-    /// Compile a unary native call: `func_name(arg)`.
+    /// Compile a native function call.
     ///
-    /// Returns `Some(var)` if the name is a known unary native
-    /// (arity=1) and was handled; `None` to fall through to the
-    /// generic function-call path.
-    pub fn compile_unary(
-        &self,
-        builder: &mut IrBuilder,
-        func_name: &str,
-        arg_var: &Var,
-    ) -> Option<Var> {
-        match func_name {
-            // print: syscall(0, arg) → write to stdout, return arg.
-            "print" => {
-                let result = builder.var("nfi.print", Width::I64);
-                builder.syscall(0, arg_var, &result);
-                Some(result)
-            }
-            _ => None,
-        }
-    }
-
-    /// Compile a binary native call: `(func_name lhs)(rhs)`.
-    ///
-    /// Returns `Some(var)` if the name is a known binary native
-    /// (arity=2) and was handled; `None` to fall through.
-    pub fn compile_binary(
-        &self,
-        builder: &mut IrBuilder,
-        func_name: &str,
-        lhs_var: &Var,
-        rhs_var: &Var,
-    ) -> Option<Var> {
-        let result = builder.var(&format!("nfi.{}", func_name), Width::I64);
-        match func_name {
-            "add" => builder.add(&result, lhs_var, rhs_var),
-            "sub" => builder.sub(&result, lhs_var, rhs_var),
-            "mul" => builder.mul(&result, lhs_var, rhs_var),
-            "div" => builder.div(&result, lhs_var, rhs_var),
-            _ => return None,
-        }
-        Some(result)
+    /// `args` must already be compiled Var values.  Returns the
+    /// result Var, or `None` if `name` is not registered.
+    pub fn compile(&self, builder: &mut IrBuilder, name: &str, args: &[&Var]) -> Option<Var> {
+        self.entries.get(name).map(|entry| (entry.emit_fn)(builder, args))
     }
 }
