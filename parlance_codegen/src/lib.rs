@@ -103,32 +103,26 @@ impl Codegen {
             }
         }
 
-        // Second pass: compile each definition.
-        // The last definition is the entry point.
+        // Second pass: compile each definition as a callable function.
         for def in defs {
             match def {
                 IrDef::Bind { name, expr } => {
                     self.compile_definition(name, expr);
                 }
                 IrDef::Infix { op, strength, func } => {
-                    // Infix declarations only exist in the IR as metadata;
-                    // they don't generate bytecode.
                     let _ = (op, strength, func);
                 }
             }
         }
 
-        // ── Entry point ──────────────────────────────────────────
-        // After all function definitions, call the last definition
-        // (the entry point) so the program actually executes.
-        if let Some(IrDef::Bind { name, .. }) = defs.last() {
-            let label = format!("def_{name}");
+        // ── Entry point: call `main` if defined ─────────────────────
+        if self.func_names.contains_key("main") {
             let dummy = self.builder.i64("entry.dummy", 0);
             self.builder.push_arg(&dummy);
             self.builder.enter();
             let slot = self.builder.var("entry.slot", Width::I64);
             self.builder.pop_arg(&slot);
-            self.builder.call(&label);
+            self.builder.call("def_main");
             let ret = self.builder.var("entry.ret", Width::I64);
             self.builder.pop_arg(&ret);
             self.builder.exit();
