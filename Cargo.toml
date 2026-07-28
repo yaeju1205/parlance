@@ -16,6 +16,7 @@ members = [
     "parlance_ir",
     "parlance_optimize",
     "parlance_codegen",
+    "parlance_typecheck",
 ]
 
 [workspace.dependencies]
@@ -26,6 +27,7 @@ parlance_semant = { path = "parlance_semant" }
 parlance_ir = { path = "parlance_ir" }
 parlance_optimize = { path = "parlance_optimize" }
 parlance_codegen = { path = "parlance_codegen" }
+parlance_typecheck = { path = "parlance_typecheck" }
 
 [dependencies]
 parlance_lexer.workspace = true
@@ -35,6 +37,7 @@ parlance_semant.workspace = true
 parlance_ir.workspace = true
 parlance_optimize.workspace = true
 parlance_codegen.workspace = true
+parlance_typecheck.workspace = true
 
 graftvm_liternal = { git = "https://github.com/yaeju1205/graftvm", package = "graftvm_liternal" }
 graftvm_bytecode = { git = "https://github.com/yaeju1205/graftvm", package = "graftvm_bytecode" }
