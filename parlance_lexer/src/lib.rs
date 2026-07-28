@@ -213,6 +213,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                 "define" => Token::Define,
                 "infix" => Token::Infix,
                 "var" => Token::Var,
+                "native" => Token::Native,
                 _ => Token::Ident(s),
             }
         } else if c == '"' {
@@ -301,6 +302,10 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
             pos += 1;
             col += 1;
             Token::Comma
+        } else if c == ':' {
+            pos += 1;
+            col += 1;
+            Token::Colon
         } else {
             // ── DFA: ERROR state (no transition for this char) ──
             return Err(format!(

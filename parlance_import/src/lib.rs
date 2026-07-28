@@ -118,7 +118,7 @@ pub fn resolve_import(import_stmt: &Stmt, source_dir: &Path) -> Result<Module, S
                         for export in sub_mod.exports {
                             match export {
                                 Export::Define { name, expr } => {
-                                    resolved_stmts.push(Stmt::Define { name, expr });
+                                    resolved_stmts.push(Stmt::Define { name, expr, type_sig: None });
                                 }
                                 Export::Infix { op, strength, func } => {
                                     resolved_stmts.push(Stmt::Infix { op, strength, func });
@@ -160,7 +160,7 @@ pub fn collect_exports(stmts: &[Stmt]) -> Vec<Export> {
     let mut exports = Vec::new();
     for stmt in stmts {
         match stmt {
-            Stmt::Define { name, expr } => {
+            Stmt::Define { name, expr, .. } => {
                 exports.push(Export::Define {
                     name: name.clone(),
                     expr: expr.clone(),
@@ -175,6 +175,9 @@ pub fn collect_exports(stmts: &[Stmt]) -> Vec<Export> {
             }
             Stmt::Import { .. } => {
                 // Already resolved above; skip.
+            }
+            Stmt::Native { .. } => {
+                // Native declarations are not exported.
             }
         }
     }

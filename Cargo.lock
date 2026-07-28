@@ -49,6 +49,7 @@ version = "0.1.0"
 dependencies = [
  "graftvm_bytecode",
  "graftvm_interpreter",
+ "graftvm_liternal",
  "parlance_codegen",
  "parlance_import",
  "parlance_ir",

@@ -205,7 +205,7 @@ impl Parser {
 
     // ── Statement parsing ────────────────────────────────────────
     //
-    //  FIRST(stmt) = { "import", "define", "infix" }
+    //  FIRST(stmt) = { "import", "define", "infix", "native" }
     //
     //  Each statement occupies one line and is parsed by a dedicated
     //  function that consumes exactly the tokens belonging to it.
@@ -215,8 +215,9 @@ impl Parser {
             Token::Import => self.parse_import(),
             Token::Define => self.parse_define(),
             Token::Infix => self.parse_infix_stmt(),
+            Token::Native => self.parse_native(),
             other => self.err(format!(
-                "expected statement (import/define/infix), got '{other}'"
+                "expected statement (import/define/infix/native), got '{other}'"
             )),
         }
     }
@@ -251,13 +252,19 @@ impl Parser {
         })
     }
 
-    /// `define IDENT = expr`
+    /// `define IDENT [: type] = expr`
     fn parse_define(&mut self) -> Result<Stmt, ParseError> {
         self.advance(); // 'define'
         let name = self.expect_ident()?;
+        let type_sig = if self.peek().token == Token::Colon {
+            self.advance(); // ':'
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
         self.expect(&Token::Equal)?;
         let expr = self.parse_expr()?;
-        Ok(Stmt::Define { name, expr })
+        Ok(Stmt::Define { name, type_sig, expr })
     }
 
     /// `infix OP INT = expr`
@@ -274,6 +281,58 @@ impl Parser {
             strength: bp,
             func,
         })
+    }
+
+    /// `native IDENT : type`
+    fn parse_native(&mut self) -> Result<Stmt, ParseError> {
+        self.advance(); // 'native'
+        let name = self.expect_ident()?;
+        self.expect(&Token::Colon)?;
+        let type_sig = self.parse_type()?;
+        Ok(Stmt::Native { name, type_sig })
+    }
+
+    // ── Type parsing ──────────────────────────────────────────────
+    //
+    //   type_atom  ::= "Int" | "Float" | "Bool" | "Str" | "(" type ")"
+    //   type       ::= type_atom { "->" type }
+    //
+    //   Right-associative: a -> b -> c = Fun(a, Fun(b, c))
+
+    /// Parse a type expression (right-associative arrows).
+    fn parse_type(&mut self) -> Result<Type, ParseError> {
+        let atom = self.parse_type_atom()?;
+        if self.peek().token == Token::Arrow {
+            self.advance(); // '->'
+            let ret = self.parse_type()?;
+            Ok(Type::Fun(Box::new(atom), Box::new(ret)))
+        } else {
+            Ok(atom)
+        }
+    }
+
+    /// Parse a type atom: a built-in name or parenthesized type.
+    fn parse_type_atom(&mut self) -> Result<Type, ParseError> {
+        match &self.peek().token {
+            Token::Ident(s) => {
+                let ty = match s.as_str() {
+                    "Int" => Type::Int,
+                    "Float" => Type::Float,
+                    "Bool" => Type::Bool,
+                    "Str" => Type::Str,
+                    other => return self.err(format!("unknown type '{other}'")),
+                };
+                self.advance();
+                Ok(ty)
+            }
+            Token::LParen => {
+                self.advance(); // '('
+                let ty = self.parse_type()?;
+                self.expect(&Token::RParen)?;
+                Ok(ty)
+            }
+            other => self.err(format!("expected type, got '{other}'")),
+        }
     }
 
     // ── Expression parsing ───────────────────────────────────────

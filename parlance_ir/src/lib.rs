@@ -56,6 +56,8 @@ pub enum IrDef {
     Bind { name: String, expr: Ir },
     /// `infix op strength = func_ir`
     Infix { op: String, strength: u32, func: Ir },
+    /// `native name : type` — no body, host provides implementation
+    Native { name: String, arity: u32 },
 }
 
 // ── Display ──────────────────────────────────────────────────────
@@ -79,6 +81,9 @@ impl fmt::Display for IrDef {
             IrDef::Bind { name, expr } => write!(f, "define {name} = {expr}"),
             IrDef::Infix { op, strength, func } => {
                 write!(f, "infix {op} {strength} = {func}")
+            }
+            IrDef::Native { name, arity } => {
+                write!(f, "native {name} (arity={arity})")
             }
         }
     }
@@ -117,7 +122,7 @@ pub fn lower_program(stmts: &[Stmt]) -> Vec<IrDef> {
     stmts
         .iter()
         .map(|stmt| match stmt {
-            Stmt::Define { name, expr } => IrDef::Bind {
+            Stmt::Define { name, expr, .. } => IrDef::Bind {
                 name: name.clone(),
                 expr: lower(expr),
             },
@@ -125,6 +130,10 @@ pub fn lower_program(stmts: &[Stmt]) -> Vec<IrDef> {
                 op: op.clone(),
                 strength: *strength,
                 func: lower(func),
+            },
+            Stmt::Native { name, type_sig } => IrDef::Native {
+                name: name.clone(),
+                arity: type_sig.arity(),
             },
             Stmt::Import { .. } => {
                 panic!("ir::lower_program: Import node survived semant")

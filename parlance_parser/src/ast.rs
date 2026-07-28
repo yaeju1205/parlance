@@ -45,6 +45,27 @@
 
 use std::fmt;
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum Type {
+    Int,
+    Float,
+    Bool,
+    Str,
+    /// Fun(param, result) = param -> result
+    Fun(Box<Type>, Box<Type>),
+}
+
+impl Type {
+    /// Count the number of arguments in a curried function type.
+    /// e.g. Int -> Int -> Int  ⇒  arity = 2
+    pub fn arity(&self) -> u32 {
+        match self {
+            Type::Fun(_, ret) => 1 + ret.arity(),
+            _ => 0,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Expr {
     // ── Literals ─────────────────────────────────────────────────
@@ -56,70 +77,31 @@ pub enum Expr {
     Var(String),
 
     // ── Lambda abstraction ───────────────────────────────────────
-    //  \param -> body
-    //  Parser: atom → Backslash → expect_ident → expect(Arrow) → parse_expr
     Lambda { param: String, body: Box<Expr> },
 
     // ── Application (function call by juxtaposition) ─────────────
-    //  f x y  ⇒  Apply(Apply(Var("f"), Var("x")), Var("y"))
-    //  Left-associative, parsed in parse_apply().
     Apply(Box<Expr>, Box<Expr>),
 
     // ── Infix operation (desugared later by semant) ──────────────
-    //  left op right
-    //  Parsed by the Pratt loop in parse_pratt().
     Infix(Box<Expr>, String, Box<Expr>),
 
     // ── Local variable binding ───────────────────────────────────
-    //  var name <- value
-    //  Parsed in parse_bind().  Greedy: value consumes infix
-    //  operators but stops at >>= because that's Token::BindChain.
     Bind { name: String, value: Box<Expr> },
 
     // ── Sequencing for bind-chains ───────────────────────────────
-    //  a >>= b  ⇒  Seq(a, b)
-    //  Left-associative: a >>= b >>= c  ⇒  Seq(Seq(a, b), c)
-    //  Parsed in parse_expr() after Pratt handles all infix ops.
     Seq(Box<Expr>, Box<Expr>),
 }
 
 // ── Import specification ────────────────────────────────────────
-//
-// MODULE SYSTEM THEORY:
-//
-//   Each Parlance source file is a MODULE.  A module exports the
-//   names bound by its `define` and `infix` statements.  The import
-//   statement brings a subset of another module's exported names
-//   into the current scope.
-//
-//   Import resolution is a form of NAME SPACE MANAGEMENT:
-//
-//     import "prelude"
-//       → brings ALL exported names from prelude.plc into scope
-//
-//     import "prelude" (map, filter)
-//       → brings ONLY the listed names
-//
-//     import "prelude" hiding (internal_helper)
-//       → brings ALL names EXCEPT the listed ones
-//
-//   The underlying theory is SIMPLE SYMBOL IMPORT (not qualified
-//   modules): imported names are merged directly into the current
-//   scope, and a later definition shadows an earlier import.
-//   Cycle detection is performed by tracking which files are
-//   currently being resolved.
 
 /// Controls which names are imported from a module.
 #[derive(Debug, Clone)]
 pub enum ImportSpec {
-    /// `import "path"`  —  import all exported names
     All,
-    /// `import "path" (a, b, c)`  —  import only the listed names
     Only(Vec<String>),
 }
 
 /// A resolved module: the set of names a module exports.
-/// Built by the import resolver and consumed by semantic analysis.
 #[derive(Debug, Clone)]
 pub struct Module {
     pub path: String,
@@ -129,37 +111,40 @@ pub struct Module {
 /// A single exported binding from a module.
 #[derive(Debug, Clone)]
 pub enum Export {
-    Define {
-        name: String,
-        expr: Expr,
-    },
-    Infix {
-        op: String,
-        strength: u32,
-        func: Expr,
-    },
+    Define { name: String, expr: Expr },
+    Infix { op: String, strength: u32, func: Expr },
 }
 
 // ── Statements ───────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub enum Stmt {
-    /// `import "path"` or `import "path" (names...)` or `import "path" hiding (names...)`
+    /// `import "path"` or `import "path" (names...)`
     Import { path: String, spec: ImportSpec },
 
-    /// `define name = expr`
-    Define { name: String, expr: Expr },
+    /// `define name [: type] = expr`
+    Define { name: String, type_sig: Option<Type>, expr: Expr },
 
     /// `infix op strength = func`
-    Infix {
-        op: String,
-        strength: u32,
-        func: Expr,
-    },
+    Infix { op: String, strength: u32, func: Expr },
+
+    /// `native name : type`
+    Native { name: String, type_sig: Type },
 }
 
 // ── Display ──────────────────────────────────────────────────────
-//  Each variant formats as its concrete syntax, useful for debugging.
+
+impl fmt::Display for Type {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Type::Int => write!(f, "Int"),
+            Type::Float => write!(f, "Float"),
+            Type::Bool => write!(f, "Bool"),
+            Type::Str => write!(f, "Str"),
+            Type::Fun(param, ret) => write!(f, "({param} -> {ret})"),
+        }
+    }
+}
 
 impl fmt::Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -190,9 +175,18 @@ impl fmt::Display for Stmt {
                 }
                 Ok(())
             }
-            Stmt::Define { name, expr } => write!(f, "define {name} = {expr}"),
+            Stmt::Define { name, type_sig, expr } => {
+                write!(f, "define {name}")?;
+                if let Some(ty) = type_sig {
+                    write!(f, " : {ty}")?;
+                }
+                write!(f, " = {expr}")
+            }
             Stmt::Infix { op, strength, func } => {
                 write!(f, "infix {op} {strength} = {func}")
+            }
+            Stmt::Native { name, type_sig } => {
+                write!(f, "native {name} : {type_sig}")
             }
         }
     }

@@ -13,15 +13,14 @@
 //     Ir::Lam{p,b}  →  compile as an anonymous function
 //     Ir::App(f,a)  →  apply: compile f and a, then call
 //
-//   NATIVE FUNCTION INTERFACE (NFI):
-//     Built-in functions like print, add, sub, mul, div are NOT
-//     hardcoded in the codegen.  Instead, they are registered in
-//     a NativeRegistry that is passed in from OUTSIDE the compiler.
-//     The codegen never matches on function names — it only checks
-//     "is this name in the registry?" and dispatches generically.
+//   NATIVE FUNCTIONS:
+//     Functions declared with `native name : type` in Parlance
+//     source are compiled to `CallNative` opcodes.  Their
+//     implementations are provided by the host at VM runtime
+//     via `VM::register_native()`.
 //
 //   ENTRY POINT:
-//     The entry function name is also configurable from outside.
+//     The entry function name is configurable from outside.
 //     Pass `Some("main")` to call main, or `None` for no entry.
 
 use std::collections::HashMap;
@@ -37,7 +36,7 @@ use nfi::NativeRegistry;
 /// Compile an optimized IR program into GraftVM bytecode.
 /// Convenience wrapper: no entry point, empty native registry.
 pub fn compile(defs: &[IrDef], _program_name: &str) -> Vec<graftvm_bytecode::Opcode> {
-    let nfi = NativeRegistry::empty();
+    let nfi = NativeRegistry::from_ir(defs);
     compile_with(defs, None, &nfi)
 }
 
@@ -45,7 +44,7 @@ pub fn compile(defs: &[IrDef], _program_name: &str) -> Vec<graftvm_bytecode::Opc
 /// Convenience wrapper: no entry point, empty native registry.
 pub fn compile_program(defs: &[IrDef], _program_name: &str) -> Vec<graftvm_bytecode::Opcode> {
     let optimized = optimize(defs);
-    let nfi = NativeRegistry::empty();
+    let nfi = NativeRegistry::from_ir(&optimized);
     compile_with(&optimized, None, &nfi)
 }
 
@@ -102,29 +101,29 @@ impl<'a> Codegen<'a> {
     // ── Program compilation ─────────────────────────────────────
 
     fn compile_program(&mut self, defs: &[IrDef], entry_point: Option<&str>) {
-        // First pass: register all function names.
+        // First pass: register all function/native names.
         for def in defs {
             match def {
-                IrDef::Bind { name, .. } => {
+                IrDef::Bind { name, .. } | IrDef::Native { name, .. } => {
                     self.func_names.insert(name.clone(), 0);
                 }
                 IrDef::Infix { .. } => {}
             }
         }
 
-        // Second pass: compile each definition as a callable function.
+        // Second pass: compile non-native definitions as callable functions.
         for def in defs {
             match def {
                 IrDef::Bind { name, expr } => {
                     self.compile_definition(name, expr);
                 }
-                IrDef::Infix { .. } => {}
+                IrDef::Native { .. } | IrDef::Infix { .. } => {
+                    // Native functions have no body — skip.
+                }
             }
         }
 
         // ── Entry point ─────────────────────────────────────────
-        // Call the configured entry function (e.g. "main")
-        // if it exists in the compiled definitions.
         if let Some(entry) = entry_point {
             if self.func_names.contains_key(entry) {
                 let label = format!("def_{entry}");
@@ -182,7 +181,6 @@ impl<'a> Codegen<'a> {
             }
 
             Ir::Var(v) => {
-                // If it's a known function name, return a dummy var
                 if self.func_names.contains_key(v) {
                     let dummy = self.fresh_label("func_ref");
                     self.builder.i64(&dummy, 0)
@@ -233,39 +231,35 @@ impl<'a> Codegen<'a> {
 
     // ── Application compilation ─────────────────────────────────
 
-    /// Compile a function application `(f a)`.
-    ///
-    /// Dispatch order:
-    ///   1. If f is a Var pointing to a native unary function → NFI
-    ///   2. If f = App(Var(native), lhs) → binary NFI
-    ///   3. If f is a lambda → inline the application
-    ///   4. Otherwise → generic call
     fn compile_apply(&mut self, f: &Ir, a: &Ir) -> graftvm_ir::Var {
-        // ── Unary native: func_name(arg) ────────────────────────
+        // ── Unary native call: func_name(arg) ───────────────────
         if let Ir::Var(func_name) = f {
             if self.func_names.contains_key(func_name) {
-                let arg_var = self.compile_expr(a);
-                if let Some(result) = self.nfi.compile(&mut self.builder, func_name, &[&arg_var])
-                {
-                    return result;
+                if self.nfi.is_native(func_name) {
+                    return self.compile_native_call(func_name, 1, a);
                 }
-                // Not native (or arity mismatch) → generic call.
+                let arg_var = self.compile_expr(a);
                 return self.compile_generic_call(func_name, arg_var);
             }
         }
 
-        // ── Binary native: detect ((func_name lhs) rhs) ─────────
-        // 1 + 2 desugars to App(App(Var("add"), 1), 2).
+        // ── Binary native: ((func_name lhs) rhs) ────────────────
         if let Ir::App(f_inner, lhs) = f {
             if let Ir::Var(ref func_name) = f_inner.as_ref() {
                 if self.func_names.contains_key(func_name) && self.nfi.is_native(func_name) {
                     let lhs_var = self.compile_expr(lhs);
                     let rhs_var = self.compile_expr(a);
-                    if let Some(result) =
-                        self.nfi.compile(&mut self.builder, func_name, &[&lhs_var, &rhs_var])
-                    {
-                        return result;
-                    }
+                    let result = self.fresh_label("native");
+                    let result_var = self.builder.var(&result, Width::I64);
+
+                    // Push args in order, then CallNative pops them in reverse.
+                    self.builder.push_arg(&lhs_var);
+                    self.builder.push_arg(&rhs_var);
+                    self.builder.call_native(func_name, 2);
+
+                    // The result is on the arg stack — pop it.
+                    self.builder.pop_arg(&result_var);
+                    return result_var;
                 }
             }
         }
@@ -320,7 +314,26 @@ impl<'a> Codegen<'a> {
         result_var
     }
 
-    /// Generic call to a named function (not native).
+    /// Compile a call to a native function: push args, emit CallNative.
+    ///
+    /// For unary: compile the single arg, push it, emit CallNative.
+    /// The receiver (main.rs / VM runtime) decides what to do.
+    fn compile_native_call(&mut self, func_name: &str, arity: u32, arg: &Ir) -> graftvm_ir::Var {
+        // For unary: compile the argument
+        let arg_var = self.compile_expr(arg);
+
+        let result = self.fresh_label("native");
+        let result_var = self.builder.var(&result, Width::I64);
+
+        // Push arg, emit CallNative, pop result.
+        self.builder.push_arg(&arg_var);
+        self.builder.call_native(func_name, arity);
+        self.builder.pop_arg(&result_var);
+
+        result_var
+    }
+
+    /// Generic call to a named Parlance function.
     fn compile_generic_call(&mut self, func_name: &str, arg_var: graftvm_ir::Var) -> graftvm_ir::Var {
         let result = self.fresh_label("call");
         let result_var = self.builder.var(&result, Width::I64);
