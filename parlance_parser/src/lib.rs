@@ -311,19 +311,21 @@ impl Parser {
         }
     }
 
-    /// Parse a type atom: a built-in name or parenthesized type.
+    /// Parse a type atom: a type name or parenthesized type.
+    ///
+    /// Uppercase → type constructor (Int, Float, Bool, Str, IO, ...)
+    /// Lowercase → type variable (a, b, c, ...)
     fn parse_type_atom(&mut self) -> Result<Type, ParseError> {
         match &self.peek().token {
             Token::Ident(s) => {
-                let ty = match s.as_str() {
-                    "Int" => Type::Int,
-                    "Float" => Type::Float,
-                    "Bool" => Type::Bool,
-                    "Str" => Type::Str,
-                    other => return self.err(format!("unknown type '{other}'")),
-                };
+                let name = s.clone();
                 self.advance();
-                Ok(ty)
+                let first = name.chars().next().unwrap_or('_');
+                if first.is_uppercase() {
+                    Ok(Type::TCon(name))
+                } else {
+                    Ok(Type::TVar(name))
+                }
             }
             Token::LParen => {
                 self.advance(); // '('

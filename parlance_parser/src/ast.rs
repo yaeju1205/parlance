@@ -47,15 +47,20 @@ use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
-    Int,
-    Float,
-    Bool,
-    Str,
+    /// Type variable (generic): a, b, c ...
+    TVar(String),
+    /// Type constructor: Int, Float, Bool, Str, IO ...
+    TCon(String),
     /// Fun(param, result) = param -> result
     Fun(Box<Type>, Box<Type>),
 }
 
 impl Type {
+    /// Check if this type has a specific constructor name.
+    pub fn is(&self, name: &str) -> bool {
+        matches!(self, Type::TCon(s) if s == name)
+    }
+
     /// Count the number of arguments in a curried function type.
     /// e.g. Int -> Int -> Int  ⇒  arity = 2
     pub fn arity(&self) -> u32 {
@@ -137,11 +142,15 @@ pub enum Stmt {
 impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Type::Int => write!(f, "Int"),
-            Type::Float => write!(f, "Float"),
-            Type::Bool => write!(f, "Bool"),
-            Type::Str => write!(f, "Str"),
-            Type::Fun(param, ret) => write!(f, "({param} -> {ret})"),
+            Type::TVar(v) => write!(f, "{v}"),
+            Type::TCon(c) => write!(f, "{c}"),
+            Type::Fun(param, ret) => {
+                // Parenthesize param if it's also a Fun (right-assoc)
+                match param.as_ref() {
+                    Type::Fun(_, _) => write!(f, "({param} -> {ret})"),
+                    _ => write!(f, "{param} -> {ret}"),
+                }
+            }
         }
     }
 }
