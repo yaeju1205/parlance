@@ -36,5 +36,6 @@ parlance_ir.workspace = true
 parlance_optimize.workspace = true
 parlance_codegen.workspace = true
 
+graftvm_liternal = { git = "https://github.com/yaeju1205/graftvm", package = "graftvm_liternal" }
 graftvm_bytecode = { git = "https://github.com/yaeju1205/graftvm", package = "graftvm_bytecode" }
 graftvm_interpreter = { git = "https://github.com/yaeju1205/graftvm", package = "graftvm_interpreter" }

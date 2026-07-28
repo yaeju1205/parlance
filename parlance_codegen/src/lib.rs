@@ -177,7 +177,8 @@ impl<'a> Codegen<'a> {
 
             Ir::Str(s) => {
                 let name = self.fresh_label("str");
-                self.builder.constant(&name, graftvm_liternal::Liternal::String(s.clone()))
+                self.builder
+                    .constant(&name, graftvm_liternal::Liternal::String(s.clone()))
             }
 
             Ir::Var(v) => {
@@ -187,9 +188,7 @@ impl<'a> Codegen<'a> {
                 } else {
                     match self.builder.find_var(v) {
                         Some(var) => var.clone(),
-                        None => {
-                            self.builder.i64(&format!("undef_{v}"), 0)
-                        }
+                        None => self.builder.i64(&format!("undef_{v}"), 0),
                     }
                 }
             }
@@ -334,7 +333,11 @@ impl<'a> Codegen<'a> {
     }
 
     /// Generic call to a named Parlance function.
-    fn compile_generic_call(&mut self, func_name: &str, arg_var: graftvm_ir::Var) -> graftvm_ir::Var {
+    fn compile_generic_call(
+        &mut self,
+        func_name: &str,
+        arg_var: graftvm_ir::Var,
+    ) -> graftvm_ir::Var {
         let result = self.fresh_label("call");
         let result_var = self.builder.var(&result, Width::I64);
 

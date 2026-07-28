@@ -1,4 +1,6 @@
-define id = \x -> x
-define result = id 42
+define a = \x -> 1
 
-define a = print "Hello"
+define main =
+  var x <- 10       >>=
+  var y <- x + 3    >>=
+  print (a 3)
