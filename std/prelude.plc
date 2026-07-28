@@ -4,8 +4,8 @@ infix * 6 = mul
 infix / 6 = div
 infix == 4 = eq
 
-native add : Int -> Int -> Int
-native sub : Int -> Int -> Int
-native mul : Int -> Int -> Int
-native div : Int -> Int -> Int
-native print : Int -> Int
+native add  : Int -> Int -> Int
+native sub  : Int -> Int -> Int
+native mul  : Int -> Int -> Int
+native div  : Int -> Int -> Int
+native print : a -> IO
