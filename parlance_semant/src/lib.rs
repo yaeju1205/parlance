@@ -103,7 +103,7 @@ pub fn analyze(stmts: Vec<Stmt>) -> Result<Vec<Stmt>, SemanticError> {
                         for export in mod_.exports {
                             match export {
                                 Export::Define { name, expr } => {
-                                    resolved.push(Stmt::Define { name, expr });
+                                    resolved.push(Stmt::Define { name, expr, type_sig: None });
                                 }
                                 Export::Infix { op, strength, func } => {
                                     resolved.push(Stmt::Infix { op, strength, func });
@@ -138,12 +138,13 @@ pub fn analyze(stmts: Vec<Stmt>) -> Result<Vec<Stmt>, SemanticError> {
             }
             Stmt::Infix { op, func, .. } => {
                 ctx.op_to_func.insert(op.clone(), func.clone());
-                // The function name referenced by an infix decl is also global.
                 if let Expr::Var(n) = func {
                     ctx.globals.insert(n.clone());
                 }
             }
-            Stmt::Import { .. } => {
+            Stmt::Native { name, .. } => {
+                ctx.globals.insert(name.clone());
+            }Stmt::Import { .. } => {
                 // Already resolved above; skip.
             }
         }
@@ -156,10 +157,14 @@ pub fn analyze(stmts: Vec<Stmt>) -> Result<Vec<Stmt>, SemanticError> {
             Stmt::Import { .. } => {
                 // Already resolved; drop the original import.
             }
-            Stmt::Define { name, expr } => {
+            Stmt::Define { name, expr, .. } => {
                 let e = desugar(&expr, &ctx)?;
                 check_names(&e, &ctx)?;
-                out.push(Stmt::Define { name, expr: e });
+                out.push(Stmt::Define { name, type_sig: None, expr: e });
+            }
+            Stmt::Native { name, type_sig } => {
+                // Native declarations have no body — just pass through.
+                out.push(Stmt::Native { name, type_sig });
             }
             Stmt::Infix { op, strength, func } => {
                 let f = desugar(&func, &ctx)?;

@@ -146,6 +146,7 @@ fn inline_defs(defs: &[IrDef]) -> Vec<IrDef> {
         .enumerate()
         .filter_map(|(i, def)| match def {
             // Don't inline away the last definition (entry point) or built-ins.
+            // Native definitions have no body and are never inlined.
             IrDef::Bind { name, expr }
                 if i != last_idx && !keep.contains(name.as_str()) && inline_class(expr) == InlineHeuristic::Small =>
             {
@@ -180,6 +181,10 @@ fn inline_defs(defs: &[IrDef]) -> Vec<IrDef> {
                     name: name.clone(),
                     expr: substitute_vars(expr, &resolved),
                 });
+            }
+            IrDef::Native { .. } => {
+                // Native definitions have no body — pass through unchanged.
+                out.push(def.clone());
             }
             IrDef::Infix { op, strength, func } => {
                 out.push(IrDef::Infix {
@@ -221,6 +226,7 @@ fn remove_dead(defs: &[IrDef]) -> Vec<IrDef> {
         match def {
             IrDef::Bind { expr, .. } => collect_refs(expr, &mut referenced),
             IrDef::Infix { func, .. } => collect_refs(func, &mut referenced),
+            IrDef::Native { .. } => {} // native names are always live
         }
     }
 
@@ -234,6 +240,8 @@ fn remove_dead(defs: &[IrDef]) -> Vec<IrDef> {
             let name = match def {
                 IrDef::Bind { name, .. } => name,
                 IrDef::Infix { op, .. } => op,
+                // Native definitions are always kept (never treated as dead).
+                IrDef::Native { .. } => return true,
             };
             referenced.contains(name.as_str())
         })
@@ -276,6 +284,7 @@ pub fn optimize(defs: &[IrDef]) -> Vec<IrDef> {
                     strength,
                     func: beta_reduce(&func),
                 },
+                IrDef::Native { .. } => def,
             })
             .collect();
 
@@ -291,6 +300,7 @@ pub fn optimize(defs: &[IrDef]) -> Vec<IrDef> {
                     strength,
                     func: eta_reduce(&func),
                 },
+                IrDef::Native { .. } => def,
             })
             .collect();
 

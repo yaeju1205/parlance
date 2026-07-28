@@ -17,6 +17,7 @@ use std::path::PathBuf;
 use std::process;
 
 use graftvm_interpreter::vm::VM;
+use graftvm_liternal::Liternal;
 use parlance_codegen::nfi::NativeRegistry;
 use parlance_optimize::optimize;
 use parlance_parser::ast::Stmt;
@@ -131,11 +132,10 @@ fn main() {
         return;
     }
 
-    // ── Build native registry ───────────────────────────────────
-    let nfi = NativeRegistry::with_defaults();
+    // ── Build native registry from IR ────────────────────────────
+    let nfi = NativeRegistry::from_ir(&optimized);
 
     // ── Determine entry point ───────────────────────────────────
-    // --run implies --entry main unless --entry was given explicitly
     let do_run = flag("--run");
     let entry = entry_point.or_else(|| if do_run { Some("main".into()) } else { None });
     let entry_ref = entry.as_deref();
@@ -149,7 +149,7 @@ fn main() {
     }
 
     if do_run {
-        run_bytecode(&bytecode);
+        run_bytecode(&bytecode, &nfi);
         return;
     }
 
@@ -204,8 +204,55 @@ fn show_bytecode(bc: &[graftvm_bytecode::Opcode]) {
     }
 }
 
-fn run_bytecode(bc: &[graftvm_bytecode::Opcode]) {
+/// Register the default native function implementations with the VM
+/// and run the bytecode.
+fn run_bytecode(bc: &[graftvm_bytecode::Opcode], nfi: &NativeRegistry) {
     let mut vm = VM::new(bc.to_vec());
+
+    // Register native function implementations.
+    // These are called at runtime via the CallNative opcode.
+    for name in nfi.all_names() {
+        match name.as_str() {
+            "print" => {
+                vm.register_native("print", |args| {
+                    println!("{}", args[0]);
+                    Ok(args[0].clone())
+                });
+            }
+            "add" => {
+                vm.register_native("add", |args| {
+                    let x = args[0].expect_int()?.expect_i64()?;
+                    let y = args[1].expect_int()?.expect_i64()?;
+                    Ok(Liternal::from(x + y))
+                });
+            }
+            "sub" => {
+                vm.register_native("sub", |args| {
+                    let x = args[0].expect_int()?.expect_i64()?;
+                    let y = args[1].expect_int()?.expect_i64()?;
+                    Ok(Liternal::from(x - y))
+                });
+            }
+            "mul" => {
+                vm.register_native("mul", |args| {
+                    let x = args[0].expect_int()?.expect_i64()?;
+                    let y = args[1].expect_int()?.expect_i64()?;
+                    Ok(Liternal::from(x * y))
+                });
+            }
+            "div" => {
+                vm.register_native("div", |args| {
+                    let x = args[0].expect_int()?.expect_i64()?;
+                    let y = args[1].expect_int()?.expect_i64()?;
+                    Ok(Liternal::from(x / y))
+                });
+            }
+            _ => {
+                eprintln!("warning: no native implementation for '{}'", name);
+            }
+        }
+    }
+
     println!(";; running bytecode ({} instructions)...", bc.len());
     match vm.run_debug() {
         Ok(()) => println!(";; execution finished"),

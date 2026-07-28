@@ -4,10 +4,8 @@ infix * 6 = mul
 infix / 6 = div
 infix == 4 = eq
 
-define add = \x -> \y -> x
-define sub = \x -> \y -> x
-define mul = \x -> \y -> x
-define div = \x -> \y -> x
-define eq = \x -> \y -> x
-
-define print = \x -> x
+native add : Int -> Int -> Int
+native sub : Int -> Int -> Int
+native mul : Int -> Int -> Int
+native div : Int -> Int -> Int
+native print : Int -> Int

@@ -46,6 +46,7 @@ pub enum Token {
     Define,
     Infix,
     Var,
+    Native,
 
     // ── Literals ─────────────────────────────────────────────────
     Int(i64),
@@ -60,6 +61,7 @@ pub enum Token {
 
     // ── Punctuation ──────────────────────────────────────────────
     Backslash, //  \
+    Colon,     //  :
     Arrow,     //  ->
     Equal,     //  =
     Bind,      //  <-
@@ -88,12 +90,14 @@ impl fmt::Display for Token {
             Token::Define => write!(f, "define"),
             Token::Infix => write!(f, "infix"),
             Token::Var => write!(f, "var"),
+            Token::Native => write!(f, "native"),
             Token::Int(n) => write!(f, "{n}"),
             Token::Float(n) => write!(f, "{n}"),
             Token::Str(s) => write!(f, "\"{s}\""),
             Token::Ident(s) => write!(f, "{s}"),
             Token::Op(s) => write!(f, "{s}"),
             Token::Backslash => write!(f, "\\"),
+            Token::Colon => write!(f, ":"),
             Token::Arrow => write!(f, "->"),
             Token::Equal => write!(f, "="),
             Token::Bind => write!(f, "<-"),
