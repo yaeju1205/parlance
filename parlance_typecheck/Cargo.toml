@@ -1,0 +1,10 @@
+[package]
+name = "parlance_typecheck"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+parlance_parser = { workspace = true }
+
+[dev-dependencies]
+parlance_semant = { workspace = true }

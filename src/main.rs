@@ -21,6 +21,7 @@ use graftvm_liternal::Liternal;
 use parlance_codegen::nfi::NativeRegistry;
 use parlance_optimize::optimize;
 use parlance_parser::ast::Stmt;
+use parlance_typecheck::typecheck;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -117,6 +118,12 @@ fn main() {
             process::exit(1);
         }
     };
+
+    // ── Type checking ──────────────────────────────────────────
+    if let Err(e) = typecheck(&semant_result) {
+        eprintln!("type error: {}", e.msg);
+        process::exit(1);
+    }
 
     // Lower to IR
     let ir = parlance_ir::lower_program(&semant_result);
