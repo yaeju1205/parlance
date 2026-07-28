@@ -1,6 +1,4 @@
-define a = \x -> 1
-
 define main =
   var x <- 10       >>=
   var y <- x + 3    >>=
-  print (a 3)
+  print "Hello World"

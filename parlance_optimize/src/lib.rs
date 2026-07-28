@@ -135,12 +135,6 @@ fn inline_defs(defs: &[IrDef]) -> Vec<IrDef> {
 
     let last_idx = defs.len() - 1;
 
-    // Names that must never be inlined — these are NFI (Native
-    // Function Interface) built-ins whose special handling happens
-    // in codegen, not in the IR optimizer.
-    // Keep in sync with `parlance_codegen/src/nfi.rs`.
-    let keep: HashSet<&str> = ["print", "add", "sub", "mul", "div"].into();
-
     let inline_map: Vec<(String, Ir)> = defs
         .iter()
         .enumerate()
@@ -148,7 +142,7 @@ fn inline_defs(defs: &[IrDef]) -> Vec<IrDef> {
             // Don't inline away the last definition (entry point) or built-ins.
             // Native definitions have no body and are never inlined.
             IrDef::Bind { name, expr }
-                if i != last_idx && !keep.contains(name.as_str()) && inline_class(expr) == InlineHeuristic::Small =>
+                if i != last_idx && inline_class(expr) == InlineHeuristic::Small =>
             {
                 Some((name.clone(), expr.clone()))
             }
