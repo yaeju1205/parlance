@@ -377,6 +377,7 @@ mod tests {
                     param: "x".into(),
                     body: Box::new(Expr::Var("x".into())),
                 },
+                type_sig: None,
             },
             Stmt::Infix {
                 op: "+".into(),
