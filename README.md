@@ -13,6 +13,12 @@ cargo run -p parlance -- examples/hello.plc --run
 # 바이트코드 확인
 cargo run -p parlance -- examples/hello.plc --bytecode
 
+# Lua 소스로 컴파일
+cargo run -p parlance -- spec/hello.plc --lua
+
+# Lua 소스를 파일로 저장
+cargo run -p parlance -- spec/hello.plc --lua -o out.lua
+
 # 최적화된 IR 확인
 cargo run -p parlance -- examples/hello.plc --opt
 
@@ -50,6 +56,8 @@ parlance file.plc --ast               # AST
 parlance file.plc --ir                # IR
 parlance file.plc --opt               # 최적화된 IR
 parlance file.plc --bytecode          # 바이트코드
+parlance file.plc --lua               # self-contained Lua 소스 출력
+parlance file.plc --lua -o out.lua    # Lua 소스 저장
 parlance file.plc --run               # 컴파일 + GraftVM 실행
 parlance file.plc -o out.bc           # 바이트코드 저장
 ```
@@ -69,6 +77,7 @@ cargo install --path .
   → [semant]    표기적 의미론 desugar   →  순수 λ-term (Infix/Bind/Seq 제거)
   → [ir]        λ-계산법 IR             →  Int | Float | Str | Var | Lam | App
   → [opt]       η-reduction, β-reduction, inlining, DCE
+  → [lua]       parlance_lua 백엔드 (--lua)  →  self-contained Lua 소스
   → [codegen]   GraftVM bytecode        →  Opcode 리스트
   → [run]       GraftVM 인터프리터      →  실행
 ```
