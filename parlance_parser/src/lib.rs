@@ -264,7 +264,11 @@ impl Parser {
         };
         self.expect(&Token::Equal)?;
         let expr = self.parse_expr()?;
-        Ok(Stmt::Define { name, type_sig, expr })
+        Ok(Stmt::Define {
+            name,
+            type_sig,
+            expr,
+        })
     }
 
     /// `infix OP INT = expr`
@@ -470,7 +474,25 @@ impl Parser {
             Token::Backslash => {
                 // \param -> body
                 let param = self.expect_ident()?;
-                self.expect(&Token::Arrow)?;
+                // Accept both `->` and `=>` as the lambda arrow
+                // (spec/SYNTAX.md and spec/bind.plc use `=>`).
+                match &self.peek().token {
+                    Token::Arrow => {
+                        self.advance();
+                    }
+                    Token::Op(op) if op == "=>" => {
+                        self.advance();
+                    }
+                    other => {
+                        return Err(ParseError {
+                            line,
+                            col,
+                            msg: format!(
+                                "expected '->' or '=>' after lambda parameter, got '{other}'"
+                            ),
+                        });
+                    }
+                }
                 let body = self.parse_expr()?;
                 Ok(Expr::Lambda {
                     param,
@@ -528,6 +550,28 @@ mod tests {
             _ => panic!("expected define"),
         };
         assert!(matches!(expr, Expr::Lambda { param, .. } if param == "x"));
+    }
+
+    #[test]
+    fn smoke_parse_lambda_fat_arrow() {
+        // `=>` is accepted as an alternative lambda arrow
+        // (spec/SYNTAX.md, spec/bind.plc).
+        let (stmts, _) = parse_program(r"define id = \x => x").unwrap();
+        let expr = match &stmts[0] {
+            Stmt::Define { expr, .. } => expr,
+            _ => panic!("expected define"),
+        };
+        assert!(matches!(expr, Expr::Lambda { param, .. } if param == "x"));
+
+        // Curried form from spec/bind.plc: \x => \y => x
+        let (stmts2, _) = parse_program(r"define c = \x => \y => x").unwrap();
+        let expr2 = match &stmts2[0] {
+            Stmt::Define { expr, .. } => expr,
+            _ => panic!("expected define"),
+        };
+        assert!(
+            matches!(expr2, Expr::Lambda { body, .. } if matches!(body.as_ref(), Expr::Lambda { param, .. } if param == "y"))
+        );
     }
 
     #[test]
