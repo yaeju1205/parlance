@@ -43,6 +43,14 @@ const HELLO_FALLBACK: &str = r#"define main =
   print "Hello World"
 "#;
 
+const TABLE_FALLBACK: &str = r#"native table : Table
+
+define main =
+  var f <- table::foo          >>=
+  var v <- table::index "cat"  >>=
+  print (add f v)
+"#;
+
 /// Read a repo file relative to the crate root, falling back to an
 /// embedded copy so the test stays hermetic.
 fn repo_file(rel: &str, fallback: &str) -> String {
@@ -219,5 +227,55 @@ fn table_index_one_arg_and_qualified_natives_run_under_lua() {
     assert_eq!(
         stdout, "42\n",
         "lua output mismatch\n--- generated lua ---\n{lua_src}"
+    );
+}
+
+/// spec/table.plc end-to-end: `::` field/index access on the
+/// native-provided `table` factory runs under a real Lua interpreter.
+#[test]
+fn table_plc_runs_under_lua() {
+    let Some(lua) = find_lua() else {
+        eprintln!("skipping integration test: no Lua interpreter on PATH");
+        return;
+    };
+
+    let prelude = repo_file("std/prelude.plc", PRELUDE_FALLBACK);
+    let table = repo_file("spec/table.plc", TABLE_FALLBACK);
+    let source = format!("{prelude}\n{table}");
+
+    let tokens = parlance_lexer::tokenize(&source).expect("lex");
+    let (stmts, _prec) = parlance_parser::Parser::new(tokens).parse().expect("parse");
+    let analyzed = parlance_semant::analyze(stmts).expect("semant");
+    parlance_typecheck::typecheck(&analyzed).expect("typecheck");
+    let ir = parlance_ir::lower_program(&analyzed);
+    let optimized = parlance_optimize::optimize(&ir);
+    let lua_src = parlance_lua::compile(&optimized, Some("main"));
+
+    assert!(
+        lua_src.contains("table = Native.table()"),
+        "factory native missing:\n{lua_src}"
+    );
+    assert!(
+        !lua_src.contains("unknown native"),
+        "unimplemented native in generated lua:\n{lua_src}"
+    );
+
+    let dir = std::env::temp_dir().join(format!("parlance_lua_it4_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let script = dir.join("table.lua");
+    std::fs::write(&script, &lua_src).expect("write lua script");
+    let out = Command::new(lua).arg(&script).output().expect("run lua");
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert!(
+        out.status.success(),
+        "lua {lua} exited with {}: {stderr}\n--- generated lua ---\n{lua_src}",
+        out.status
+    );
+    assert_eq!(
+        stdout, "49\n",
+        "lua output mismatch (expected 42 + 7)\n--- generated lua ---\n{lua_src}"
     );
 }

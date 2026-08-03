@@ -76,6 +76,12 @@ use parlance_ir::{Ir, IrDef};
 /// Prelude natives implemented directly in the preamble `Native` table.
 const PRELUDE_NATIVES: [&str; 5] = ["add", "sub", "mul", "div", "print"];
 
+/// The native table factory implemented by the preamble.  A zero-arity
+/// native named `table` is a pure *value*: `table = Native.table()`
+/// binds a fresh Lua table whose fields/indices the `::` forms read
+/// (`table::foo`, `table::index "cat"`).
+const TABLE_FACTORY: &str = "table";
+
 /// Lua reserved words — never usable as bare identifiers.
 const LUA_KEYWORDS: [&str; 22] = [
     "and", "break", "do", "else", "elseif", "end", "false", "for", "function", "goto", "if", "in",
@@ -396,7 +402,7 @@ impl LuaGen {
                 }
                 IrDef::Native { name, arity } => {
                     let lua_name = self.env.lookup(name).expect("def predeclared").to_string();
-                    if !PRELUDE_NATIVES.contains(&name.as_str()) {
+                    if !PRELUDE_NATIVES.contains(&name.as_str()) && name != TABLE_FACTORY {
                         // Unknown native → runtime-error stub.  The
                         // wrapper below still delegates to the Native
                         // table, so a host can extend the preamble
@@ -545,6 +551,9 @@ fn preamble() -> String {
     s.push_str("Native.mul = function(a, b) return a * b end\n");
     s.push_str("Native.div = function(a, b) return math.floor(a / b) end\n");
     s.push_str("Native.print = function(a) io.write(tostring(a), \"\\n\") return a end\n");
+    // The table factory: a zero-arity native producing a fresh Lua
+    // table whose fields/indices the `::` forms read (spec/table.plc).
+    s.push_str("Native.table = function() return { foo = 42, cat = 7 } end\n");
     s
 }
 
@@ -989,6 +998,27 @@ mod tests {
             src.contains(
                 "foo = function(a1) return function(a2) return Native.foo(a1, a2) end end"
             ),
+            "got:\n{src}"
+        );
+    }
+
+    #[test]
+    fn table_factory_native_has_no_stub() {
+        // `native table : Table` (zero-arity) is implemented by the
+        // preamble factory — no runtime-error stub is emitted.
+        let src = compile(&[native("table", 0)], None);
+        assert!(src.contains("table = Native.table()"), "got:\n{src}");
+        assert!(
+            !src.contains("unknown native 'table'"),
+            "stub must be suppressed:\n{src}"
+        );
+    }
+
+    #[test]
+    fn preamble_implements_table_factory() {
+        let src = compile(&[], None);
+        assert!(
+            src.contains("Native.table = function() return { foo = 42, cat = 7 } end"),
             "got:\n{src}"
         );
     }

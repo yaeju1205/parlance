@@ -1,0 +1,6 @@
+native table : Table
+
+define main =
+  var f <- table::foo          >>=
+  var v <- table::index "cat"  >>=
+  print (add f v)
