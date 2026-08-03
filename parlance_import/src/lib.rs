@@ -267,6 +267,7 @@ mod tests {
             Stmt::Define {
                 name: "x".into(),
                 expr: Expr::Int(42),
+                type_sig: None,
             },
             Stmt::Infix {
                 op: "+".into(),

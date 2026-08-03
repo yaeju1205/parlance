@@ -13,6 +13,12 @@ cargo run -p parlance -- examples/hello.plc --run
 # 바이트코드 확인
 cargo run -p parlance -- examples/hello.plc --bytecode
 
+# Lua 소스로 컴파일
+cargo run -p parlance -- spec/hello.plc --lua
+
+# Lua 소스를 파일로 저장
+cargo run -p parlance -- spec/hello.plc --lua -o out.lua
+
 # 최적화된 IR 확인
 cargo run -p parlance -- examples/hello.plc --opt
 
@@ -33,6 +39,12 @@ define expr = 1 + 2 * 3    # 1 + (2 * 3) — 우선순위 적용
 
 # bind-chain (do-notation)
 define demo = var x <- 1 >>= var y <- 2 >>= x + y
+
+# `::` 필드/인덱스 접근 (이중 콜론은 식별자를 하나로 이어붙임)
+native table::foo : Int
+native table::index : Str -> Int
+define main = table::index "cat"    # 인덱스 접근 (X::index K)
+define x = table::foo               # 필드 접근 (table::foo)
 ```
 
 ## 사용법
@@ -44,6 +56,8 @@ parlance file.plc --ast               # AST
 parlance file.plc --ir                # IR
 parlance file.plc --opt               # 최적화된 IR
 parlance file.plc --bytecode          # 바이트코드
+parlance file.plc --lua               # self-contained Lua 소스 출력
+parlance file.plc --lua -o out.lua    # Lua 소스 저장
 parlance file.plc --run               # 컴파일 + GraftVM 실행
 parlance file.plc -o out.bc           # 바이트코드 저장
 ```
@@ -63,6 +77,7 @@ cargo install --path .
   → [semant]    표기적 의미론 desugar   →  순수 λ-term (Infix/Bind/Seq 제거)
   → [ir]        λ-계산법 IR             →  Int | Float | Str | Var | Lam | App
   → [opt]       η-reduction, β-reduction, inlining, DCE
+  → [lua]       parlance_lua 백엔드 (--lua)  →  self-contained Lua 소스
   → [codegen]   GraftVM bytecode        →  Opcode 리스트
   → [run]       GraftVM 인터프리터      →  실행
 ```
@@ -77,6 +92,24 @@ cargo install --path .
 | 이름 분석 | **Lexical Scoping** | 정적 스코프, λ-바인더 그림자 규칙 |
 | 최적화 | **λ-계산법 변환** | η-reduction, β-reduction, inlining, dead code elimination |
 | 코드 생성 | **동형 사상** (Homomorphism) | 각 IR 노드 → Opcode 시퀀스 |
+
+## `::` 이중 콜론 접근
+
+`::` 쌍은 식별자를 이어붙여 **하나의 이름**으로 토큰화합니다 — 필드/인덱스
+접근을 위한 문법입니다. 단일 `:` 는 변함없이 타입 어노테이션 전용입니다.
+
+```plc
+native table::foo : Int            # 네이티브로 제공되는 이름 등록
+native table::index : Str -> Int
+
+define main = table::index "cat"   # 인덱스 접근 (X::index K)
+define x = table::foo              # 필드 접근 (table::foo)
+```
+
+- 필드 접근: `table::foo`
+- 인덱스 접근: `X::index K` (키 1개), `X::index T K` (키 + 값 2개)
+- `::` 이름이 환경에 없으면 타입체커는 제약 없는 타입 변수를 반환하여
+  `Expr::Apply` 규칙을 통해 통일됩니다 (unbound-variable 오류 대신).
 
 ## 프로젝트 구조
 

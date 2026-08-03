@@ -1,0 +1,15 @@
+[package]
+name = "parlance_lua"
+version = "0.1.0"
+edition = "2021"
+description = "Parlance IR -> self-contained Lua source backend"
+
+[dependencies]
+parlance_ir.workspace = true
+parlance_optimize.workspace = true
+
+[dev-dependencies]
+parlance_lexer.workspace = true
+parlance_parser.workspace = true
+parlance_semant.workspace = true
+parlance_typecheck.workspace = true

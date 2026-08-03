@@ -54,6 +54,7 @@ dependencies = [
  "parlance_import",
  "parlance_ir",
  "parlance_lexer",
+ "parlance_lua",
  "parlance_optimize",
  "parlance_parser",
  "parlance_semant",
@@ -88,6 +89,18 @@ dependencies = [
 [[package]]
 name = "parlance_lexer"
 version = "0.1.0"
+
+[[package]]
+name = "parlance_lua"
+version = "0.1.0"
+dependencies = [
+ "parlance_ir",
+ "parlance_lexer",
+ "parlance_optimize",
+ "parlance_parser",
+ "parlance_semant",
+ "parlance_typecheck",
+]
 
 [[package]]
 name = "parlance_optimize"

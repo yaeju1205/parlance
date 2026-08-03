@@ -310,6 +310,21 @@ fn walk_names(
         Expr::Var(n) => {
             if scope.contains(n) || globals.contains(n) {
                 Ok(())
+            } else if let Some((left, _right)) = n.split_once("::") {
+                // `::`-qualified field/index access (table::foo,
+                // X::index K): the whole name is not bound, but its
+                // LEFT segment refers to a bound variable or global
+                // whose field/index is read (the typechecker gives
+                // such names a fresh TVar; the Lua backend resolves
+                // the left segment).  Accept when the left segment is
+                // in scope.
+                if scope.contains(left) || globals.contains(left) {
+                    Ok(())
+                } else {
+                    Err(SemanticError {
+                        msg: format!("unbound variable: '{n}'"),
+                    })
+                }
             } else {
                 Err(SemanticError {
                     msg: format!("unbound variable: '{n}'"),
@@ -460,6 +475,50 @@ mod tests {
         let (stmts, _) = parlance_parser::parse_program(src).unwrap();
         let msg = analyze(stmts).unwrap_err().msg;
         assert!(msg.contains("unbound variable"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_qualified_access_on_global() {
+        // `::` field access reads a field of a bound name: t::foo is
+        // accepted when `t` is a declared global (the Lua backend
+        // resolves the left segment; the typechecker gives the
+        // qualified name a fresh TVar).
+        let src = r#"
+            define t = 1
+            define f = t::foo
+        "#;
+        ok(src);
+    }
+
+    #[test]
+    fn test_qualified_access_on_lambda_param() {
+        // The left segment may also be a lambda parameter in scope.
+        let src = r#"
+            define f = \t -> t::foo
+        "#;
+        ok(src);
+    }
+
+    #[test]
+    fn test_qualified_access_unbound_left_errors() {
+        // If the left segment is not bound either, still an error.
+        let src = r#"
+            define f = zz::foo
+        "#;
+        let (stmts, _) = parlance_parser::parse_program(src).unwrap();
+        let msg = analyze(stmts).unwrap_err().msg;
+        assert!(msg.contains("unbound variable"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_qualified_native_declared() {
+        // README-style: `native table::foo : Int` declares the name;
+        // the qualified access resolves to it.
+        let src = r#"
+            native table::foo : Int
+            define x = table::foo
+        "#;
+        ok(src);
     }
 
     #[test]

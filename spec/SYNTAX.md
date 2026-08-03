@@ -11,6 +11,18 @@ define id = \x => x                 # 정의 (최상위)
 infix + 5 = add                     # 연산자 우선순위 선언
 ```
 
+## 주석 (Comments)
+
+`#` 는 줄 끝까지의 주석을 시작합니다. 주석은 토큰을 만들지 않으며,
+코드 뒤(트레일링)와 별도 줄 모두 사용할 수 있습니다. 문자열 리터럴
+안의 `#` 는 주석이 아닙니다.
+
+```plc
+# 전체 줄 주석
+define x = 42        # 트레일링 주석
+define s = "a#b"     # 문자열 안의 '#'는 문자 그대로
+```
+
 ## 리터럴
 
 | 표현 | 타입 | 예시 |
@@ -65,6 +77,25 @@ define demo = var x <- 1 >>= var y <- 2 >>= x + y
 ```plc
 define x = (1 + 2) * 3              # 괄호로 우선순위 변경
 ```
+
+## `::` 필드/인덱스 접근
+
+`::` (이중 콜론) 쌍은 식별자를 하나로 이어붙입니다. `table::foo`,
+`tbl::index` 는 각각 **하나의 식별자**로 토큰화되며, 필드/인덱스 접근에
+사용합니다.
+
+```plc
+native table::foo : Int
+native table::index : Str -> Int
+
+define main = table::index "cat"    # 인덱스 접근 (X::index K)
+define x = table::foo               # 필드 접근 (table::foo)
+define y = table::index "cat" 1     # 키+값 인덱스 접근 (X::index T K)
+```
+
+주의: 단일 `:` 는 여전히 타입 어노테이션 전용 토큰입니다.
+`define x : Int = 42` 는 그대로 동작하며 `x:Int` (공백 없음)도
+`x`, `:`, `Int` 세 토큰으로 분리됩니다.
 
 ## 컴파일러 사용법
 

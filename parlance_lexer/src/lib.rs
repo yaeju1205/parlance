@@ -9,14 +9,21 @@
 //     CLASS          CHARS                    REGEX
 //     ──────────────────────────────────────────────────────
 //     whitespace     ' ', '\t', '\n'          [ \t\n]
+//     comment        '#'                      [#\n]*  (to end of line)
 //     digit          '0'..'9'                 [0-9]
 //     ident_start    [a-zA-Z_]                [a-zA-Z_]
 //     ident_cont     [a-zA-Z0-9_']            [a-zA-Z0-9_']
-//     symbol         !#$%&*+-./<=>?@^|~=      see is_symbol()
+//     symbol         !$%&*+-./<=>?@^|~=       see is_symbol()
 //     quote          "                        "
 //     lparen         (                        (
 //     rparen         )                        )
 //     backslash      \                        \\
+//
+//   COMMENT HANDLING:
+//     '#' starts a line comment: from START, the DFA ε-transitions
+//     through the comment to end-of-line and resumes scanning at the
+//     next line.  A comment never produces a token.  '#' is therefore
+//     NOT available as a user-defined operator character.
 //
 //   DFA STATE TRANSITION DIAGRAM (one token per run from START):
 //
@@ -36,7 +43,17 @@
 //                    │                      ▼
 //       START ──ident──→  IDENT ◄── ident_cont ─┘
 //                         │
-//                         │ any non-ident_cont  →  ACCEPT (emit Ident/keyword)
+//                         │   "::" pair  →  continue as IDENT
+//                         │   (table::foo lexes as one Ident)
+//                         │
+//                         │ any other  →  ACCEPT (emit Ident/keyword)
+//
+//   NOTE ON ':' :
+//     A SINGLE ':' is NOT part of the IDENT alphabet — it always
+//     lexes as Token::Colon (used by `define x : Int = ...` type
+//     annotations).  Only the two-character sequence `::` continues
+//     an identifier, and that rule lives in the scanner loop so the
+//     two cases (`x :: y` vs `x : y`) never collide.
 //
 //                    ┌─── (any non-quote, non-backslash) ──┐
 //                    │                                     │
@@ -104,11 +121,12 @@ fn is_ident_cont(c: char) -> bool {
 
 /// Symbol characters that can form user-defined operators.
 /// `->`, `<-`, `>>=` are tokenised as symbol runs first, then resolved.
+/// NOTE: `#` is excluded — it starts a line comment (see tokenize()).
 #[inline]
 fn is_symbol(c: char) -> bool {
     matches!(
         c,
-        '!' | '#'
+        '!'
             | '$'
             | '%'
             | '&'
@@ -153,6 +171,19 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
                 col += 1;
             }
             pos += 1;
+        }
+
+        // ── COMMENT: '#' to end of line (ε-transition, no token) ──
+        //  A comment is scanned from START and never produces a token;
+        //  scanning resumes at the next line.
+        if pos < chars.len() && chars[pos] == '#' {
+            while pos < chars.len() && chars[pos] != '\n' {
+                pos += 1;
+                col += 1;
+            }
+            // The trailing '\n' (if any) is consumed by the whitespace
+            // loop on the next iteration, which updates line/col.
+            continue;
         }
 
         if pos >= chars.len() {
@@ -200,11 +231,29 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
             // ── DFA: IDENT state ─────────────────────────────────
             //  δ(START, ident_start) → IDENT
             //  δ(IDENT, ident_cont)  → IDENT   (self-loop)
+            //  δ(IDENT, "::")        → IDENT   (double-colon self-loop)
             //  δ(IDENT, other)       → ACCEPT
+            //
+            //  A `::` PAIR continues an identifier, so `table::foo`
+            //  and `tbl::index` lex as ONE Ident token.  This is
+            //  implemented in the scanner loop (NOT by adding ':'
+            //  to is_ident_cont): a single ':' must still lex as
+            //  Token::Colon for `define x : Int = ...` annotations.
             let start = pos;
-            while pos < chars.len() && is_ident_cont(chars[pos]) {
-                pos += 1;
-                col += 1;
+            loop {
+                // Consume the ordinary ident_cont run.
+                while pos < chars.len() && is_ident_cont(chars[pos]) {
+                    pos += 1;
+                    col += 1;
+                }
+                // If a `::` pair follows, consume both colons and keep
+                // scanning as the same identifier; otherwise accept.
+                if pos + 1 < chars.len() && chars[pos] == ':' && chars[pos + 1] == ':' {
+                    pos += 2;
+                    col += 2;
+                } else {
+                    break;
+                }
             }
             let s: String = chars[start..pos].iter().collect();
             // Post-accept keyword resolution table
@@ -329,4 +378,170 @@ pub fn tokenize(src: &str) -> Result<Vec<Spanned>, String> {
     });
 
     Ok(tokens)
+}
+
+// ── Self-tests ───────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Tokenize and drop the Eof sentinel.
+    fn toks(src: &str) -> Vec<Token> {
+        let mut v: Vec<Token> = tokenize(src)
+            .unwrap()
+            .into_iter()
+            .map(|s| s.token)
+            .collect();
+        assert_eq!(v.pop(), Some(Token::Eof));
+        v
+    }
+
+    #[test]
+    fn double_colon_lexes_as_one_ident() {
+        assert_eq!(toks("table::foo"), vec![Token::Ident("table::foo".into())]);
+        assert_eq!(toks("tbl::index"), vec![Token::Ident("tbl::index".into())]);
+        // Multiple :: segments stay a single identifier.
+        assert_eq!(
+            toks("a::b::c"),
+            vec![Token::Ident("a::b::c".into())]
+        );
+        // :: pairs may interleave with ordinary ident chars.
+        assert_eq!(
+            toks("x'::y"),
+            vec![Token::Ident("x'::y".into())]
+        );
+    }
+
+    // ── Line comments ─────────────────────────────────────────
+
+    #[test]
+    fn hash_comment_to_end_of_line() {
+        // A full-line comment produces no tokens.
+        assert_eq!(toks("# just a comment\n"), vec![]);
+        // Trailing comment after code.
+        assert_eq!(
+            toks("define x = 42 # answer\n"),
+            vec![
+                Token::Define,
+                Token::Ident("x".into()),
+                Token::Equal,
+                Token::Int(42),
+            ]
+        );
+        // Comment without a trailing newline (EOF-terminated).
+        assert_eq!(
+            toks("define x = 42 # answer"),
+            vec![
+                Token::Define,
+                Token::Ident("x".into()),
+                Token::Equal,
+                Token::Int(42),
+            ]
+        );
+    }
+
+    #[test]
+    fn comments_do_not_merge_adjacent_lines() {
+        // Line 1 ends with a comment; line 2 must lex normally.
+        assert_eq!(
+            toks("define a = 1 # one\ndefine b = 2\n"),
+            vec![
+                Token::Define,
+                Token::Ident("a".into()),
+                Token::Equal,
+                Token::Int(1),
+                Token::Define,
+                Token::Ident("b".into()),
+                Token::Equal,
+                Token::Int(2),
+            ]
+        );
+    }
+
+    #[test]
+    fn hash_inside_string_is_not_a_comment() {
+        // '#' inside a string literal is ordinary string content.
+        assert_eq!(
+            toks("define s = \"a#b\"\n"),
+            vec![
+                Token::Define,
+                Token::Ident("s".into()),
+                Token::Equal,
+                Token::Str("a#b".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn hash_is_not_an_operator_character() {
+        // '#' was a symbol char; it must now start a comment instead.
+        assert_eq!(toks("#"), vec![]);
+        assert_eq!(toks("1 # trailing"), vec![Token::Int(1)]);
+    }
+
+    #[test]
+    fn double_colon_inside_larger_expression() {
+        assert_eq!(
+            toks("table::index \"cat\""),
+            vec![
+                Token::Ident("table::index".into()),
+                Token::Str("cat".into()),
+            ]
+        );
+        assert_eq!(
+            toks("define x = table::foo"),
+            vec![
+                Token::Define,
+                Token::Ident("x".into()),
+                Token::Equal,
+                Token::Ident("table::foo".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn single_colon_still_lexes_as_colon() {
+        // Type annotation with spaces: `x : Int`
+        assert_eq!(
+            toks("x : Int"),
+            vec![
+                Token::Ident("x".into()),
+                Token::Colon,
+                Token::Ident("Int".into()),
+            ]
+        );
+        // Type annotation WITHOUT spaces: `x:Int` must not become `x:Int`
+        // as one identifier — the lone ':' stays Token::Colon.
+        assert_eq!(
+            toks("x:Int"),
+            vec![
+                Token::Ident("x".into()),
+                Token::Colon,
+                Token::Ident("Int".into()),
+            ]
+        );
+        // define x : Int = 42 end-to-end.
+        assert_eq!(
+            toks("define x : Int = 42"),
+            vec![
+                Token::Define,
+                Token::Ident("x".into()),
+                Token::Colon,
+                Token::Ident("Int".into()),
+                Token::Equal,
+                Token::Int(42),
+            ]
+        );
+        // A single colon after an identifier must NOT glue the next
+        // identifier onto it.
+        assert_eq!(
+            toks("foo:bar"),
+            vec![
+                Token::Ident("foo".into()),
+                Token::Colon,
+                Token::Ident("bar".into()),
+            ]
+        );
+    }
 }
