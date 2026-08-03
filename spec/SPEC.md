@@ -27,6 +27,10 @@ DFA 상태 전이도:
            ┌─── ident_cont ───────┐
            │                      ▼
  START ──ident──→  IDENT ◄── ident_cont ─┘
+                   │
+                   │ "::" 쌍 → IDENT (table::foo 는 하나의 Ident)
+                   │
+                   │ 그 외 → ACCEPT
 
            ┌─── (any non-quote, non-backslash) ──┐
            │                                      │
@@ -50,6 +54,12 @@ DFA 상태 전이도:
 키워드 해석 (IDENT 수락 후): "import"|"define"|"infix"|"var"|"hiding"
 심볼 해석 (SYMBOL 수락 후): "->"|"="|"<-"|">>=" → punctuation, 나머지 → Op(String)
 최장 일치 (maximal munch): 모든 상태에서 가능한 가장 긴 입력을 소비
+
+':' (콜론) 규칙:
+  단일 ':' 는 IDENT 알파벳이 아님 — 항상 Token::Colon (타입 어노테이션용)
+  이중 '::' 만 식별자를 계속 이어붙임 (field/index 접근):
+    table::foo, tbl::index → 하나의 Ident 토큰
+    define x : Int = ...    → Ident("x"), Colon, Ident("Int") — 그대로 동작
 ```
 
 ### 1.2 파서 — 재귀 하강 (Recursive Descent) + Pratt
@@ -133,7 +143,7 @@ INT           = digit { digit } ;
 FLOAT         = digit { digit } "." digit { digit }
               | "." digit { digit } ;
 STR           = "\"" { char | escape } "\"" ;
-IDENT         = ident_start { ident_cont } ;
+IDENT         = ident_start { ident_cont | "::" } ;
 OP            = symbol { symbol } ;          (* user-declared operator *)
 ```
 
@@ -243,6 +253,32 @@ import "prelude"                   (* 모두 가져오기 *)
 import "prelude" (add, mul)        (* 선택적 가져오기 *)
 import "prelude" hiding (internal) (* 제외하고 가져오기 *)
 ```
+
+### 4.8 `::` 필드/인덱스 접근 (table::foo, X::index K)
+
+`::` 쌍은 식별자를 하나로 이어붙입니다. 즉 `table::foo` 와 `tbl::index`
+는 각각 **하나의** `Ident` 토큰으로 어휘 분석됩니다. 단일 `:` 는 그대로
+`Token::Colon` (타입 어노테이션 `define x : Int = ...`) 입니다.
+
+네이티브로 제공되는 이름은 `native` 선언으로 등록하고, 적용(application)
+으로 사용합니다:
+
+```plc
+native table::foo : Int
+native table::index : Str -> Int
+
+define main = table::index "cat"    (* 인덱스 접근: X::index K *)
+define x = table::foo               (* 필드 접근:   table::foo *)
+```
+
+- 필드 접근: `table::foo` — 테이블/레코드의 필드 이름 하나로 취급
+- 인덱스 접근: `X::index K` — `index` 에 키 `K` 를 적용
+- 인덱스 접근 (키 + 값): `X::index T K` — `index` 에 `T`, `K` 두 인자를 적용
+
+파이프라인 하위 단계(semant, IR, GraftVM codegen)는 이름을 불투명한
+문자열로 취급하므로 변경이 필요 없습니다. 타입체커는 `::` 이름이 환경에
+없으면(선언되지 않은 field/index 접근) 오류 대신 제약 없는 신선한 타입
+변수를 반환하여 `Expr::Apply` 규칙을 통해 통일(unify)되게 합니다.
 
 ---
 

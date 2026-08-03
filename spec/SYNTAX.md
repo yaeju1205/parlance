@@ -66,6 +66,25 @@ define demo = var x <- 1 >>= var y <- 2 >>= x + y
 define x = (1 + 2) * 3              # 괄호로 우선순위 변경
 ```
 
+## `::` 필드/인덱스 접근
+
+`::` (이중 콜론) 쌍은 식별자를 하나로 이어붙입니다. `table::foo`,
+`tbl::index` 는 각각 **하나의 식별자**로 토큰화되며, 필드/인덱스 접근에
+사용합니다.
+
+```plc
+native table::foo : Int
+native table::index : Str -> Int
+
+define main = table::index "cat"    # 인덱스 접근 (X::index K)
+define x = table::foo               # 필드 접근 (table::foo)
+define y = table::index "cat" 1     # 키+값 인덱스 접근 (X::index T K)
+```
+
+주의: 단일 `:` 는 여전히 타입 어노테이션 전용 토큰입니다.
+`define x : Int = 42` 는 그대로 동작하며 `x:Int` (공백 없음)도
+`x`, `:`, `Int` 세 토큰으로 분리됩니다.
+
 ## 컴파일러 사용법
 
 ```bash

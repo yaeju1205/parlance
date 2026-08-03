@@ -189,9 +189,22 @@ impl TypeContext {
             Expr::Str(_) => Ok(MType::TCon("Str".into())),
 
             Expr::Var(v) => {
-                self.lookup(v).ok_or_else(|| TypeError {
-                    msg: format!("unbound variable '{v}'"),
-                })
+                // A name containing `::` is a field/index access
+                // (table::foo, table::index), not a plain variable.
+                // If it was declared (native/define) it is looked up
+                // normally; otherwise we give it a fresh unconstrained
+                // type variable and let the surrounding Expr::Apply rule
+                // unify it (e.g. `X::index K` / `X::index T K`).
+                if let Some(ty) = self.lookup(v) {
+                    return Ok(ty);
+                }
+                if v.contains("::") {
+                    Ok(MType::TVar(self.fresh()))
+                } else {
+                    Err(TypeError {
+                        msg: format!("unbound variable '{v}'"),
+                    })
+                }
             }
 
             Expr::Lambda { param, body } => {
@@ -366,5 +379,65 @@ mod tests {
     #[test]
     fn test_arithmetic_type_constraint() {
         assert!(run("native add : Int -> Int -> Int define main : Int = add 1 2").is_ok());
+    }
+
+    // ── `::` double-colon names ─────────────────────────────────
+
+    #[test]
+    fn test_double_colon_native_end_to_end() {
+        // A `::` name lexes as one identifier, parses as a native
+        // declaration, and typechecks when applied.
+        assert!(run("native table::index : Str -> IO define main = table::index \"cat\"").is_ok());
+    }
+
+    #[test]
+    fn test_double_colon_define_end_to_end() {
+        // `::` names work in define positions too.
+        assert!(run("define table::foo : Int = 42 define main = table::foo").is_ok());
+    }
+
+    #[test]
+    fn test_double_colon_var_gets_fresh_tvar() {
+        // A `::` name not present in the env is field/index access,
+        // not a plain variable: it must NOT raise 'unbound variable'.
+        let mut ctx = TypeContext::new();
+        let ty = ctx.infer(&Expr::Var("X::index".into())).unwrap();
+        assert!(matches!(ty, MType::TVar(_)));
+    }
+
+    #[test]
+    fn test_double_colon_apply_unifies() {
+        // X::index K — the fresh TVar of the `::` name unifies through
+        // the Expr::Apply rule.
+        let mut ctx = TypeContext::new();
+        let expr = Expr::Apply(
+            Box::new(Expr::Var("X::index".into())),
+            Box::new(Expr::Int(1)),
+        );
+        let ty = ctx.infer(&expr).unwrap();
+        assert!(matches!(ty, MType::TVar(_)));
+    }
+
+    #[test]
+    fn test_double_colon_index_two_args() {
+        // X::index T K — the `::` name applied to two arguments unifies.
+        let mut ctx = TypeContext::new();
+        let expr = Expr::Apply(
+            Box::new(Expr::Apply(
+                Box::new(Expr::Var("X::index".into())),
+                Box::new(Expr::Str("cat".into())),
+            )),
+            Box::new(Expr::Int(1)),
+        );
+        let ty = ctx.infer(&expr).unwrap();
+        assert!(matches!(ty, MType::TVar(_)));
+    }
+
+    #[test]
+    fn test_plain_unbound_var_still_errors() {
+        // Plain names (no `::`) keep the unbound-variable error.
+        let mut ctx = TypeContext::new();
+        let err = ctx.infer(&Expr::Var("nope".into())).unwrap_err();
+        assert!(err.msg.contains("unbound variable 'nope'"), "got: {}", err.msg);
     }
 }
