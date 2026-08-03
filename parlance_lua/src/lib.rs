@@ -41,12 +41,23 @@
 //     (`local a, b, …`) so forward references resolve.
 //     IrDef::Infix is skipped (it is parser-level sugar).
 //
+//     REFERENCES TO THUNKS: a reference to a top-level Bind is emitted
+//     as the thunk CALL — `double` → `double()`, `tbl::foo` →
+//     `tbl.foo()` — so user-defined functions actually apply:
+//     `define double = \x -> mul x 2` + `double 21` emits
+//     `double()(21)`.  Natives (curried wrappers, or zero-arity pure
+//     values) and lambda parameters are referenced bare.
+//
 //     `::`-QUALIFIED DEFINITIONS (e.g. `native table::foo : Int`):
 //     the definition lives at a table field of its left segment.
 //     The left segment becomes a local table (`table = {}`) when
-//     nothing else defines it, and the native is populated onto it
-//     (`table.foo = Native["table::foo"]()` / a curried wrapper) —
-//     the field a `Var("table::foo")` access reads.
+//     nothing else defines it.  A qualified BIND populates the field
+//     as a thunk (`tbl.foo = function() return 7 end`).  A qualified
+//     NATIVE whose left segment is a zero-arity native factory (e.g.
+//     `native table : Table`) is a TYPE-LEVEL CONTRACT — the factory
+//     already provides the field, so nothing is emitted (no stub, no
+//     load-time call).  Other qualified natives get a curried wrapper
+//     plus a runtime-error stub for the host to extend.
 //
 //   NATIVE FUNCTIONS:
 //
@@ -200,6 +211,18 @@ impl Env {
         None
     }
 
+    /// Look up the Lua name together with the scope depth it lives in:
+    /// `0` = top-level definition, `>0` = a lambda parameter.  Used to
+    /// decide whether a reference must call a top-level thunk.
+    fn lookup_scope(&self, name: &str) -> Option<(usize, String)> {
+        for (i, scope) in self.scopes.iter().enumerate().rev() {
+            if let Some(lua) = scope.get(name) {
+                return Some((i, lua.clone()));
+            }
+        }
+        None
+    }
+
     /// Produce a fresh valid Lua name for `name`.
     ///
     /// Valid non-reserved names keep their spelling — Lua's own
@@ -296,6 +319,16 @@ struct LuaGen {
     /// `::`-qualified definition (e.g. `native table::foo : Int` →
     /// ("table::foo", "table", ".foo")).
     qualified: Vec<(String, String, String)>,
+    /// Full names of top-level `define` (Bind) definitions — plain and
+    /// `::`-qualified.  Binds are emitted as THUNKS, so a reference to
+    /// their value is the thunk call: `double` → `double()`,
+    /// `tbl::foo` → `tbl.foo()`.
+    thunks: HashSet<String>,
+    /// Names of zero-arity native definitions (pure values, e.g. the
+    /// `table` factory).  A `::`-qualified native whose left segment is
+    /// one of these is a type-level contract the factory already
+    /// fulfils — no stub/assignment is emitted for it.
+    zero_arity_natives: HashSet<String>,
 }
 
 impl LuaGen {
@@ -305,6 +338,8 @@ impl LuaGen {
             def_names: Vec::new(),
             table_init: Vec::new(),
             qualified: Vec::new(),
+            thunks: HashSet::new(),
+            zero_arity_natives: HashSet::new(),
         }
     }
 
@@ -323,36 +358,49 @@ impl LuaGen {
         // defines it.
         let mut seen: HashSet<String> = HashSet::new();
         for def in defs {
-            let name = match def {
-                IrDef::Bind { name, .. } | IrDef::Native { name, .. } => name,
+            match def {
+                IrDef::Bind { name, .. } | IrDef::Native { name, .. } => {
+                    if let Some((left, right)) = name.split_once("::") {
+                        if left.is_empty() || right.is_empty() {
+                            panic!("parlance_lua: compile error: malformed definition name '{name}'");
+                        }
+                        let left_was_known = seen.contains(left);
+                        let left_lua = if left_was_known {
+                            self.env.lookup(left).expect("left registered").to_string()
+                        } else {
+                            seen.insert(left.to_string());
+                            let lua = self.env.define(left);
+                            self.def_names.push(lua.clone());
+                            lua
+                        };
+                        seen.insert(name.clone());
+                        if !left_was_known {
+                            self.table_init.push(left_lua.clone());
+                        }
+                        let access = field_access(right).unwrap_or_else(|e| {
+                            panic!("parlance_lua: compile error: malformed definition name '{name}': {e}")
+                        });
+                        self.qualified.push((name.clone(), left_lua, access));
+                        // Qualified BINDS are thunks at the field.
+                        if matches!(def, IrDef::Bind { .. }) {
+                            self.thunks.insert(name.clone());
+                        }
+                        continue;
+                    }
+                    // Plain top-level name.
+                    if let IrDef::Native { arity: 0, .. } = def {
+                        self.zero_arity_natives.insert(name.clone());
+                    }
+                    if seen.insert(name.clone()) {
+                        let lua_name = self.env.define(name);
+                        self.def_names.push(lua_name);
+                        // Top-level BINDS are thunks; natives are not.
+                        if matches!(def, IrDef::Bind { .. }) {
+                            self.thunks.insert(name.clone());
+                        }
+                    }
+                }
                 IrDef::Infix { .. } => continue,
-            };
-            if let Some((left, right)) = name.split_once("::") {
-                if left.is_empty() || right.is_empty() {
-                    panic!("parlance_lua: compile error: malformed definition name '{name}'");
-                }
-                let left_was_known = seen.contains(left);
-                let left_lua = if left_was_known {
-                    self.env.lookup(left).expect("left registered").to_string()
-                } else {
-                    seen.insert(left.to_string());
-                    let lua = self.env.define(left);
-                    self.def_names.push(lua.clone());
-                    lua
-                };
-                seen.insert(name.clone());
-                if !left_was_known {
-                    self.table_init.push(left_lua.clone());
-                }
-                let access = field_access(right).unwrap_or_else(|e| {
-                    panic!("parlance_lua: compile error: malformed definition name '{name}': {e}")
-                });
-                self.qualified.push((name.clone(), left_lua, access));
-                continue;
-            }
-            if seen.insert(name.clone()) {
-                let lua_name = self.env.define(name);
-                self.def_names.push(lua_name);
             }
         }
 
@@ -392,13 +440,23 @@ impl LuaGen {
                 }
                 IrDef::Native { name, arity } if name.contains("::") => {
                     let (_, left_lua, access) = self.qualified_for(name).clone();
-                    if !PRELUDE_NATIVES.contains(&name.as_str()) {
-                        out.push_str(&native_stub(name));
+                    let left = name.split_once("::").expect("qualified").0;
+                    if self.zero_arity_natives.contains(left) {
+                        // The left segment is a native table FACTORY
+                        // (e.g. `native table : Table`): the factory
+                        // already provides this field at load time, so
+                        // the declaration is a type-level contract.
+                        // Emitting a stub here would overwrite the
+                        // factory field and error at load — skip.
+                    } else {
+                        if !PRELUDE_NATIVES.contains(&name.as_str()) {
+                            out.push_str(&native_stub(name));
+                        }
+                        out.push_str(&format!(
+                            "{left_lua}{access} = {}\n",
+                            native_body(name, *arity)
+                        ));
                     }
-                    out.push_str(&format!(
-                        "{left_lua}{access} = {}\n",
-                        native_body(name, *arity)
-                    ));
                 }
                 IrDef::Native { name, arity } => {
                     let lua_name = self.env.lookup(name).expect("def predeclared").to_string();
@@ -468,9 +526,35 @@ impl LuaGen {
                 panic!("parlance_lua: compile error: malformed variable '{v}': {e}")
             });
             let left_lua = self.env_name(left);
-            return format!("{left_lua}{access}");
+            let base = format!("{}{access}", self.value_ref(left, &left_lua));
+            // A `::`-qualified top-level BIND is a thunk at the field:
+            // its VALUE is the thunk call (tbl.foo()).
+            if self.thunks.contains(v) {
+                return format!("{base}()");
+            }
+            return base;
         }
-        self.env_name(v)
+        let lua = self.env_name(v);
+        self.value_ref(v, &lua)
+    }
+
+    /// The Lua expression for the VALUE of a Parlance name already
+    /// resolved to `lua_name`.  Top-level `define`s are thunks, so
+    /// their value is the thunk call `name()`; natives and lambda
+    /// parameters are their own value already.  A lambda parameter
+    /// that shadows a top-level name must NOT be thunk-called, so the
+    /// scope depth of the resolution is checked too.
+    fn value_ref(&self, name: &str, lua_name: &str) -> String {
+        let at_top_level = self
+            .env
+            .lookup_scope(name)
+            .map(|(scope, _)| scope == 0)
+            .unwrap_or(false);
+        if self.thunks.contains(name) && at_top_level {
+            format!("{lua_name}()")
+        } else {
+            lua_name.to_string()
+        }
     }
 
     fn compile_app(&mut self, f: &Ir, a: &Ir) -> String {
@@ -490,6 +574,7 @@ impl LuaGen {
         if let Ir::Var(v) = f {
             if let Some(namespace) = index_namespace(v) {
                 let x = self.env_name(namespace);
+                let x = self.value_ref(namespace, &x);
                 let k_lua = self.compile_expr(a);
                 let k_lua = self.bracket_expr(k_lua, a);
                 return format!("{x}[{k_lua}]");
@@ -685,8 +770,123 @@ mod tests {
             &[bind("x", Ir::Int(1)), bind("main", Ir::Var("x".into()))],
             Some("main"),
         );
+        // `x` is a top-level Bind → thunk → its value is `x()`.
         assert!(
-            src.contains("main = function() return x end"),
+            src.contains("main = function() return x() end"),
+            "got:\n{src}"
+        );
+    }
+
+    // ── Top-level thunk references ─────────────────────────────
+
+    #[test]
+    fn top_level_bind_reference_calls_thunk() {
+        // double = \x -> mul x 2 ; main = double 21
+        let src = compile(
+            &[
+                bind(
+                    "double",
+                    lam("x", app(app(Ir::Var("mul".into()), Ir::Var("x".into())), Ir::Int(2))),
+                ),
+                bind(
+                    "main",
+                    app(Ir::Var("double".into()), Ir::Int(21)),
+                ),
+            ],
+            Some("main"),
+        );
+        assert!(
+            src.contains("double = function() return function(x) return mul(x)(2) end end"),
+            "got:\n{src}"
+        );
+        // Applying a user-defined function: thunk call, then apply.
+        assert!(
+            src.contains("main = function() return double()(21) end"),
+            "got:\n{src}"
+        );
+    }
+
+    #[test]
+    fn lambda_param_is_not_thunked() {
+        // A lambda parameter is its own value — no thunk call.
+        let src = expr_lua(lam("x", Ir::Var("x".into())));
+        assert_eq!(src, "function(x) return x end");
+    }
+
+    #[test]
+    fn lambda_param_shadows_top_level_thunk() {
+        // `\double -> double 1` — the param shadows the top-level
+        // `double` thunk, so the reference stays a bare param.
+        let src = compile(
+            &[
+                bind("double", Ir::Int(7)),
+                bind(
+                    "main",
+                    lam(
+                        "double",
+                        app(Ir::Var("double".into()), Ir::Int(1)),
+                    ),
+                ),
+            ],
+            Some("main"),
+        );
+        assert!(
+            src.contains(
+                "main = function() return function(double) return double(1) end end"
+            ),
+            "got:\n{src}"
+        );
+    }
+
+    #[test]
+    fn higher_order_application_calls_each_thunk() {
+        // apply2 inc 10 with inc = \x -> add x 1:
+        //   apply2()(inc())(10) — every user function is thunk-called.
+        let src = compile(
+            &[
+                bind(
+                    "inc",
+                    lam("x", app(app(Ir::Var("add".into()), Ir::Var("x".into())), Ir::Int(1))),
+                ),
+                bind(
+                    "apply2",
+                    lam(
+                        "f",
+                        lam(
+                            "x",
+                            app(Ir::Var("f".into()), app(Ir::Var("f".into()), Ir::Var("x".into()))),
+                        ),
+                    ),
+                ),
+                bind(
+                    "main",
+                    app(app(Ir::Var("apply2".into()), Ir::Var("inc".into())), Ir::Int(10)),
+                ),
+            ],
+            Some("main"),
+        );
+        assert!(
+            src.contains("main = function() return apply2()(inc())(10) end"),
+            "got:\n{src}"
+        );
+    }
+
+    #[test]
+    fn qualified_bind_reference_calls_field_thunk() {
+        // define tbl::foo = 7 ; main = tbl::foo → tbl.foo()
+        let src = compile(
+            &[
+                bind("tbl::foo", Ir::Int(7)),
+                bind("main", Ir::Var("tbl::foo".into())),
+            ],
+            Some("main"),
+        );
+        assert!(
+            src.contains("tbl.foo = function() return 7 end"),
+            "got:\n{src}"
+        );
+        assert!(
+            src.contains("main = function() return tbl.foo() end"),
             "got:\n{src}"
         );
     }
@@ -724,12 +924,26 @@ mod tests {
             ],
             Some("main"),
         );
-        // t::foo → t.foo — the left segment renames exactly like plain `t`.
-        assert!(src.contains("return t.foo"), "got:\n{src}");
-        assert!(
-            !src.contains("t()"),
-            "left segment must not call the thunk:\n{src}"
+        // t::foo → t().foo — the left segment is a top-level thunk, so
+        // its VALUE (the table) is the thunk call `t()`; the field
+        // reads on the result.  (In real programs the left segment is
+        // a native factory value such as `table`, which is NOT a
+        // thunk and stays bare: `table.foo`.)
+        assert!(src.contains("return t().foo"), "got:\n{src}");
+    }
+
+    #[test]
+    fn table_field_access_on_native_factory_stays_bare() {
+        // native table : Table → table.foo — the factory value is not
+        // a thunk, so no `()` is added to the left segment.
+        let src = compile(
+            &[
+                native("table", 0),
+                bind("main", Ir::Var("table::foo".into())),
+            ],
+            Some("main"),
         );
+        assert!(src.contains("return table.foo"), "got:\n{src}");
     }
 
     #[test]
@@ -823,7 +1037,7 @@ mod tests {
             );
         }
         assert!(
-            src.contains("main = function() return k_local_0 end"),
+            src.contains("main = function() return k_local_0() end"),
             "got:\n{src}"
         );
     }
@@ -872,7 +1086,7 @@ mod tests {
         // forward reference: main refers to helper declared later
         assert!(src.contains("local main, helper"), "got:\n{src}");
         assert!(
-            src.contains("main = function() return helper(1) end"),
+            src.contains("main = function() return helper()(1) end"),
             "got:\n{src}"
         );
         assert!(
@@ -953,6 +1167,41 @@ mod tests {
         assert!(src.contains("tbl = {}"), "got:\n{src}");
         assert!(
             src.contains("tbl.foo = function() return 7 end"),
+            "got:\n{src}"
+        );
+    }
+
+    #[test]
+    fn factory_backed_qualified_natives_are_type_contracts() {
+        // `native table : Table` is a factory; `native table::foo` and
+        // `native table::index` declare fields the factory already
+        // provides.  NO stub, NO assignment, NO load-time call — the
+        // declarations must not error at load.
+        let src = compile(
+            &[
+                native("table", 0),
+                native("table::foo", 0),
+                native("table::index", 1),
+            ],
+            None,
+        );
+        assert!(src.contains("table = Native.table()"), "got:\n{src}");
+        assert!(!src.contains("unknown native"), "got:\n{src}");
+        assert!(!src.contains("table.foo ="), "got:\n{src}");
+        assert!(!src.contains("table.index ="), "got:\n{src}");
+        assert_eq!(src.matches("local table").count(), 1, "got:\n{src}");
+        // The factory still provides the field at runtime.
+        assert!(src.contains("Native.table = function() return { foo = 42, cat = 7 } end"));
+    }
+
+    #[test]
+    fn qualified_native_without_factory_keeps_stub() {
+        // No `native tbl` factory → the declared native still gets the
+        // host-extendable stub + wrapper (a host may implement it).
+        let src = compile(&[native("tbl::bar", 1)], None);
+        assert!(src.contains("tbl.bar = function(a1) return Native[\"tbl::bar\"](a1) end"));
+        assert!(
+            src.contains("Native[\"tbl::bar\"] = function(...) error(\"unknown native 'tbl::bar'\") end"),
             "got:\n{src}"
         );
     }

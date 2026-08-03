@@ -11,7 +11,10 @@
 //      Lit(int)     ⇒  Int
 //      Lit(float)   ⇒  Float
 //      Lit(str)     ⇒  Str
-//      Var(x)       ⇒  Γ(x)                     [lookup in context]
+//      Var(x)       ⇒  Γ(x)                       [lookup in context]
+//                      or a FRESH instance of x's polymorphic scheme
+//                      (native signatures and annotated defines are
+//                      generalized: each use gets new type variables)
 //      Lam(p, e)    ⇒  α → τ                    [fresh α, infer e under Γ[p↦α]]
 //      App(f, a)    ⇒  β                        [infer f ⇒ τ_f, a ⇒ τ_a,
 //                                                  τ_f ~ (τ_a → β), return β]
@@ -39,16 +42,28 @@ pub enum MType {
 
 impl MType {
     /// Convert a parser `Type` to an `MType`.
-    /// `TVar(name)` from the parser maps to a concrete `TCon("a")`-ish
-    /// representation, but for inference we replace each unique variable
-    /// name with a fresh numeric variable.
+    /// `TVar(name)` from the parser maps to a fresh numeric variable,
+    /// with the SAME name mapped to the SAME variable throughout the
+    /// type (`a -> a` stays one variable, not two) — this is what
+    /// makes polymorphic schemes sound when instantiated per use.
     fn from_ast(ty: &Type, ctx: &mut TypeContext) -> Self {
+        Self::from_ast_named(ty, ctx, &mut HashMap::new())
+    }
+
+    fn from_ast_named(
+        ty: &Type,
+        ctx: &mut TypeContext,
+        names: &mut HashMap<String, u64>,
+    ) -> Self {
         match ty {
-            Type::TVar(_) => MType::TVar(ctx.fresh()),
+            Type::TVar(n) => {
+                let v = *names.entry(n.clone()).or_insert_with(|| ctx.fresh());
+                MType::TVar(v)
+            }
             Type::TCon(s) => MType::TCon(s.clone()),
             Type::Fun(p, r) => MType::Fun(
-                Box::new(Self::from_ast(p, ctx)),
-                Box::new(Self::from_ast(r, ctx)),
+                Box::new(Self::from_ast_named(p, ctx, names)),
+                Box::new(Self::from_ast_named(r, ctx, names)),
             ),
         }
     }
@@ -98,6 +113,9 @@ pub struct TypeContext {
     subst: HashMap<u64, MType>,
     /// Counter for generating fresh type variables
     fresh_counter: u64,
+    /// Polymorphic schemes (AST types) for natives and annotated
+    /// defines.  Instantiated with fresh type variables at each use.
+    schemes: HashMap<String, Type>,
 }
 
 impl TypeContext {
@@ -106,6 +124,7 @@ impl TypeContext {
             env: HashMap::new(),
             subst: HashMap::new(),
             fresh_counter: 0,
+            schemes: HashMap::new(),
         }
     }
 
@@ -189,6 +208,15 @@ impl TypeContext {
             Expr::Str(_) => Ok(MType::TCon("Str".into())),
 
             Expr::Var(v) => {
+                // A name carrying a polymorphic scheme (native
+                // signature or annotated define) is INSTANTIATED with
+                // fresh type variables at every use — e.g.
+                // `native print : a -> IO` can then be applied to Str
+                // and Int in the same program.
+                if let Some(sig) = self.schemes.get(v).cloned() {
+                    let inst = MType::from_ast(&sig, self);
+                    return Ok(self.resolve(&inst));
+                }
                 // A name containing `::` is a field/index access
                 // (table::foo, table::index), not a plain variable.
                 // If it was declared (native/define) it is looked up
@@ -252,14 +280,21 @@ pub fn typecheck(stmts: &[Stmt]) -> Result<(), TypeError> {
     for stmt in stmts {
         match stmt {
             Stmt::Native { name, type_sig } => {
-                let mt = MType::from_ast(type_sig, &mut ctx);
-                ctx.bind(name, mt);
+                // Natives are POLYMORPHIC SCHEMES: their signature's
+                // type variables are instantiated fresh at every use
+                // (let-style generalization), so
+                // `native print : a -> IO` type-checks applications
+                // to Str AND Int within one program.
+                ctx.schemes.insert(name.clone(), type_sig.clone());
             }
             Stmt::Define { name, type_sig, .. } => {
                 // Reserve a fresh type variable for this definition.
-                // If there's a type annotation, we'll unify after inference.
+                // If there's a type annotation, we'll unify after
+                // inference; the annotation also becomes a polymorphic
+                // scheme (e.g. `define id : a -> a = ...`).
                 let tv = MType::TVar(ctx.fresh());
                 if let Some(sig) = type_sig {
+                    ctx.schemes.insert(name.clone(), sig.clone());
                     let sig_mt = MType::from_ast(sig, &mut ctx);
                     ctx.unify(&tv, &sig_mt)?;
                 }
@@ -379,6 +414,56 @@ mod tests {
     #[test]
     fn test_arithmetic_type_constraint() {
         assert!(run("native add : Int -> Int -> Int define main : Int = add 1 2").is_ok());
+    }
+
+    // ── Polymorphic schemes (instantiated per use) ─────────────
+
+    #[test]
+    fn test_native_scheme_instantiated_per_use() {
+        // print : a -> IO used with Str AND Int in one program: each
+        // use must get its own fresh `a`.
+        assert!(
+            run("native print : a -> IO define a = print \"x\" define b = print 42").is_ok()
+        );
+    }
+
+    #[test]
+    fn test_native_bind_chain_mixed_types() {
+        // The bind-chain form of the same situation.
+        assert!(run(
+            "native print : a -> IO define main = var p <- print \"side\" >>= print 42"
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn test_annotated_define_is_polymorphic() {
+        // define id : a -> a — usable at both Int and Str.
+        assert!(
+            run("define id : a -> a = \\x -> x define a = id 1 define b = id \"x\"").is_ok()
+        );
+    }
+
+    #[test]
+    fn test_annotation_tvars_keep_name_identity() {
+        // `a -> a` must be ONE variable: `\x -> x` fits it...
+        assert!(run("define id : a -> a = \\x -> x define main : Int = id 42").is_ok());
+        // ...but `\x -> \y -> x` (a -> b -> a) must be rejected: with
+        // name-identity the unifier hits the occurs check instead of
+        // silently treating a -> a as a -> b.
+        let err = run("define bad : a -> a = \\x -> \\y -> x").unwrap_err();
+        assert!(
+            err.msg.contains("infinite type") || err.msg.contains("mismatch"),
+            "got: {}",
+            err.msg
+        );
+    }
+
+    #[test]
+    fn test_monomorphic_native_still_rejects_mismatch() {
+        // add : Int -> Int -> Int is concrete — a Str argument fails.
+        let err = run("native add : Int -> Int -> Int define main = add 1 \"x\"").unwrap_err();
+        assert!(err.msg.contains("mismatch"), "got: {}", err.msg);
     }
 
     // ── `::` double-colon names ─────────────────────────────────

@@ -9,8 +9,9 @@
   digit       [0-9]
   ident_start [a-zA-Z_]
   ident_cont  [a-zA-Z0-9_']
-  symbol      ! # $ % & * + - . / < = > ? @ ^ | ~
+  symbol      ! $ % & * + - . / < = > ? @ ^ | ~    ('#' 제외 — 주석)
   quote       "
+  comment     # … 줄 끝까지 (토큰 생성 안 함)
 
 DFA 상태 전이도:
 
